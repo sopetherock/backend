@@ -1,0 +1,24 @@
+// src/app.js
+import express from "express";
+import cors from "cors";
+import authRouter from "./modules/auth/auth.routes.js";
+import socialRouter from "./modules/social/social.routes.js";
+import timerRouter from "./modules/timers/timer.routes.js";
+import notificationRouter from "./modules/notifications/notification.routes.js";
+
+const app = express();
+
+app.use(cors());
+app.use(express.json());
+
+// ✅ 공통 라우터 연결
+app.use("/api/auth", authRouter);
+app.use("/api/social", socialRouter);
+app.use("/api/timer", timerRouter);
+app.use("/api/notify", notificationRouter);
+
+app.get("/", (req, res) => {
+  res.send("Server running ✅");
+});
+
+export default app;
