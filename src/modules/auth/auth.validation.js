@@ -10,6 +10,9 @@ export const signupSchema = z.object({
 
 // 로그인 시 검증 
 export const loginSchema = z.object({
-    email : z.string().email(),
-    password : z.string(),
+    email: z.union([
+    z.string().email(),
+    z.string().min(4) 
+  ]),
+  password: z.string(),
 });

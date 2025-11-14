@@ -1,0 +1,281 @@
+// src/modules/timers/timer.controller.js
+import prisma from '../../config/db.js';
+import axios from 'axios'; // API 호출을 위해 import
+
+// --- 기능 1: 개인 할일 ---
+
+/**
+ * API: POST /api/timers/personal
+ * 기능: 개인 할일과 1:1 타이머 생성
+ */
+export const createPersonalTimer = async (req, res) => {
+  try {
+    const { title, duration } = req.body; // 할일 제목, 타이머 시간(초)
+    const userId = req.user.userId; // 인증된 유저 ID
+
+    // Prisma의 'Nested Write' 기능으로 Todo와 PersonalTimer를 한 번에 생성
+    const newTodo = await prisma.todo.create({
+      data: {
+        title: title,
+        ownerId: userId,
+        timer: {
+          // 1:1 관계인 PersonalTimer도 'create'
+          create: {
+            duration: duration,
+            startTime: new Date(),
+          },
+        },
+      },
+      include: {
+        timer: true, // 응답에 timer 정보 포함
+      },
+    });
+
+    res.status(201).json(newTodo);
+  } catch (error) {
+    console.error('🔥 개인 타이머 생성 오류:', error);
+    res.status(500).json({ message: '서버 오류' });
+  }
+};
+
+// --- 기능 2: 그룹 타이머 ---
+
+/**
+ * API: POST /api/timers/group
+ * 기능: 그룹 타이머(Group) 생성 및 초대
+ */
+export const createGroupTimer = async (req, res) => {
+  try {
+    const { deadline, invitedUserIds } = req.body; // 마감시간, 초대할 유저 ID 배열
+    const creatorId = req.user.userId;
+
+    // 1. 그룹(타이머) 생성
+    const newGroup = await prisma.group.create({
+      data: {
+        deadline: new Date(deadline),
+      },
+    });
+
+    // 2. 멤버 정보(GroupMembership) 생성
+    // 2-1. 초대자 본인 (즉시 'ACCEPTED' 상태)
+    await prisma.groupMembership.create({
+      data: {
+        groupId: newGroup.id,
+        userId: creatorId,
+        status: 'ACCEPTED', // 만든 사람은 자동 수락
+      },
+    });
+
+    // 2-2. 초대받은 친구들 ('INVITED' 상태)
+    if (invitedUserIds && invitedUserIds.length > 0) {
+      const inviteData = invitedUserIds.map((id) => ({
+        groupId: newGroup.id,
+        userId: id,
+        status: 'INVITED',
+      }));
+      await prisma.groupMembership.createMany({
+        data: inviteData,
+      });
+    }
+
+    // 3. [A] Timer -> Notifications (초대장 발송 요청)
+    const notificationApiUrl = 'http://localhost:3000/api/notifications/invite'; // (팀원이 만들 API)
+    axios.post(notificationApiUrl, {
+        groupId: newGroup.id,
+        inviterName: req.user.nickname, // (authMiddleware가 닉네임도 준다고 가정)
+        invitedUserIds: invitedUserIds,
+      })
+      .catch((err) => {
+        // 알림 전송이 실패해도 그룹 생성은 성공한 것. 로그만 남김
+        console.error('🔥 초대 알림 전송 실패:', err.message);
+      });
+
+    res.status(201).json(newGroup);
+  } catch (error) {
+    console.error('🔥 그룹 타이머 생성 오류:', error);
+    res.status(500).json({ message: '서버 오류' });
+  }
+};
+
+/**
+ * API: POST /api/timers/group/:groupId/accept
+ * 기능: 그룹 초대 수락
+ */
+export const acceptGroupInvite = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const groupId = parseInt(req.params.groupId); // URL 파라미터
+
+    // 'INVITED' 상태인 멤버를 'ACCEPTED'로 변경
+    await prisma.groupMembership.updateMany({
+      where: {
+        userId: userId,
+        groupId: groupId,
+        status: 'INVITED',
+      },
+      data: {
+        status: 'ACCEPTED',
+      },
+    });
+
+    res.status(200).json({ message: '그룹에 참여했습니다.' });
+  } catch (error) {
+    console.error('🔥 그룹 참여 오류:', error);
+    res.status(500).json({ message: '서버 오류' });
+  }
+};
+
+/**
+ * API: POST /api/timers/group/:groupId/complete
+ * 기능: 유저가 그룹 할일 완료 (번개 획득)
+ */
+export const completeGroupTask = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const groupId = parseInt(req.params.groupId);
+
+    // 1. 유저의 상태를 'COMPLETED'로 변경
+    await prisma.groupMembership.updateMany({
+      where: {
+        userId: userId,
+        groupId: groupId,
+        status: 'ACCEPTED', // 'ACCEPTED' 상태인 사람만 완료 가능
+      },
+      data: {
+        status: 'COMPLETED',
+      },
+    });
+
+    // 2. [보상] 퀘스트 완료 '번개'(lightingPoints) 1 지급
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        lightingPoints: {
+          increment: 1, // '번개' 누적
+        },
+      },
+    });
+
+    // 3. [핵심] 그룹 해체 및 벌칙자 선정 로직 호출
+    await findLoserAndDisband(groupId);
+
+    res.status(200).json({ message: '할 일을 완료했습니다! (번개 +1)' });
+  } catch (error) {
+    console.error('🔥 그룹 할일 완료 오류:', error);
+    res.status(500).json({ message: '서버 오류' });
+  }
+};
+
+// --- 기능 3: 벼락 및 벌칙 ---
+
+/**
+ * API: POST /api/timers/strike
+ * 기능: (C번) 벼락 1회 누적 (Notification 모듈이 호출)
+ */
+export const addStrike = async (req, res) => {
+  try {
+    const { userId, groupId } = req.body;
+
+    if (!userId || !groupId) {
+      return res.status(400).json({ message: 'userId와 groupId가 필요합니다.' });
+    }
+
+    // 'ACCEPTED' 상태인 (아직 완료 안 한) 유저의 'thunderCount' 1 증가
+    await prisma.groupMembership.updateMany({
+      where: {
+        userId: userId,
+        groupId: groupId,
+        status: 'ACCEPTED', // 완료한 사람은 벼락 안 맞음
+      },
+      data: {
+        thunderCount: {
+          increment: 1, // '벼락' 누적
+        },
+      },
+    });
+
+    // "이 그룹에서 방금 벼락이 발생했음"을 DB에 기록
+    await prisma.group.update({
+      where: { id: groupId },
+      data: { lastStrikeAt: new Date() }, // ⬅️ 현재 시간으로 갱신
+    });
+
+    res.status(200).json({ message: 'Strike processed.' });
+  } catch (error) {
+    console.error('🔥 벼락 누적 API 오류:', error);
+    res.status(500).json({ message: '벼락 누적 중 서버 오류' });
+  }
+};
+
+/**
+ * 내부 함수 (API 아님)
+ * 기능: 그룹 해체 조건 확인 및 벌칙자 선정/통보
+ */
+async function findLoserAndDisband(groupId) {
+  try {
+    // 1. 그룹이 이미 해체되었는지 확인
+    const group = await prisma.group.findFirst({
+      where: {
+        id: groupId,
+        status: 'ACTIVE', // 'ACTIVE' 상태인 그룹만 처리
+      },
+      include: {
+        members: {
+          where: {
+            status: 'ACCEPTED', // 아직 완료 안 한 사람만 조회
+          },
+        },
+      },
+    });
+
+    // 그룹이 없거나, 이미 해체됐으면 중단
+    if (!group) {
+      return;
+    }
+
+    // 2. 그룹 해체 조건 확인
+    const deadlinePassed = new Date() > group.deadline;
+    const allMembersCompleted = group.members.length === 0;
+
+    // 3. 조건 미충족 시 중단 (그룹 아직 활성)
+    if (!deadlinePassed && !allMembersCompleted) {
+      return;
+    }
+
+    // 4. [그룹 해체!]
+    await prisma.group.update({
+      where: { id: groupId },
+      data: { status: 'COMPLETED' },
+    });
+
+    // 5. 벌칙자 선정: 벼락(thunderCount)이 가장 많은 사람 검색
+    const allMembers = await prisma.groupMembership.findMany({
+      where: { groupId: groupId },
+      orderBy: { thunderCount: 'desc' }, // 벼락 많은 순 정렬
+    });
+
+    if (allMembers.length === 0) return; // 멤버가 없으면 종료
+
+    const loser = allMembers[0]; // 0번이 벼락 1등
+
+    // (만약 벼락 0개인 사람은 제외하는 등 추가 로직이 필요하면 여기에)
+    if (loser.thunderCount === 0) {
+      return; // 벼락 맞은 사람이 없으면 벌칙 없음
+    }
+
+    // 6. [B] Timer -> Notifications (벌칙자 통보)
+    const notificationApiUrl = 'http://localhost:3000/api/notifications/penalty';
+    const penaltyBody = {
+      loserUserId: loser.userId,
+      groupId: loser.groupId,
+      strikeCount: loser.thunderCount,
+    };
+
+    axios.post(notificationApiUrl, penaltyBody)
+      .catch((err) => {
+        console.error('🔥 벌칙 알림 전송 실패:', err.message);
+      });
+  } catch (error) {
+    console.error('🔥 그룹 해체/벌칙자 선정 오류:', error);
+  }
+}
