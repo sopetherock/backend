@@ -6,8 +6,8 @@ import socialRouter from "./modules/social/social.routes.js";
 import timerRouter from "./modules/timers/timer.routes.js";
 import notificationRouter from "./modules/notifications/notification.routes.js";
 
-const app = express();
-
+const app = express(); //express()실행
+//핵심 미들웨어들 설정
 app.use(cors());
 app.use(express.json());
 
