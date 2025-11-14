@@ -7,6 +7,8 @@ import jwt from "jsonwebtoken";
 import { PrismaClient } from "@prisma/client"; // Prisma DB 접속 
 import { de } from "zod/locales";
 import { act } from "react";
+import { z } from "zod";
+import { signupSchema, loginSchema } from "./auth.validation.js";
 
 const router = express.Router(); // 라우터 (경로 관리자) API 생성 
 const prisma = new PrismaClient(); // Prisma DB 생성 
@@ -19,11 +21,11 @@ router.post("/signup", async (req, res) => {
   try {
 
     // 1. Zod로 req.body 유효성 검사 (데이터가 형식에 맞게 잘 왔는지?)
-    const { email, password, nickname } = req.body;
+    const { email, password, nickname, username } = signupSchema.parse(req.body);
     
 
-    // 2. 이메일 / 닉네임 중복 검사 
-    const existingUser = await prisma.user.findUnique({
+    // 2. 이메일 / 유저아이디(username) 중복 검사 
+    const existingUser = await prisma.user.findFirst({
       where: {  OR: [ {email : email} , {username : username} ] },
     });
     if (existingUser) {
@@ -39,7 +41,8 @@ router.post("/signup", async (req, res) => {
       data: {
         email,  
         passwordHash,
-        nickname
+        nickname,
+        username
       },
     });
 
@@ -59,10 +62,10 @@ router.post("/signup", async (req, res) => {
 router.post("/login", async (req, res) => {
   try {
     // 1. Zod로 req.body 유효성 검사 (데이터가 형식에 맞게 잘 왔는지?)
-    const { email, password } = req.body;
+    const { email, password } = loginSchema.parse(req.body);
 
     // 2. 이메일로 사용자 조회
-    const user = await prisma.user.findUnique({
+    const user = await prisma.user.findFirst({
       where: { OR: [
           { email: email },
           { username: email } // ⬅️ 1. 입력된 값이 username과 일치하는지도 확인
@@ -87,8 +90,14 @@ router.post("/login", async (req, res) => {
     res.json({ actcessToken: token, tokenType: "Bearer" });
   }
     catch (error) {
-      res.status(500).json({ message: "서버 오류" });
+      if (error instanceof z.ZodError) {
+      return res.status(400).json({ message: error.errors[0].message });
     }
+    // 그 외의 경우에만 500 오류
+    console.error("로그인 오류:", error);
+    res.status(500).json({ message: "서버 오류" });
+  }
+    
 });
 
 export default router;
