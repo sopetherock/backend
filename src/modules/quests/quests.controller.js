@@ -6,7 +6,7 @@ import prisma from '../../config/db.js';
 import { calculateLevel } from '../../lib/leveling.js';
 // 퀘스트 완료 로직을 "export" (수출) 함수로 만듭니다. 
 export const completeQuest = async (req, res) => { // authMiddleware가 req.user에 유저 정보를 넣어줬다고 가정 
-const userId = req.user.id;
+const userId = req.user.userId;
 
 try { const currentUser = await prisma.user.findUnique({ where: { id: userId }, });
 
