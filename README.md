@@ -49,3 +49,36 @@
 DATABASE_URL="file:./dev.db"
 JWT_SECRET="YOUR_OWN_VERY_SECURE_RANDOM_SECRET_KEY"
 PORT=3000
+
+### 📌 Prisma Client Singleton 체크
+
+`src/config/db.js`에서 Prisma Client가 **단일 인스턴스(singleton)**로 export되는지 확인하세요.
+
+---
+
+### 📦 2. 설치 & DB 마이그레이션
+
+모든 패키지 설치:
+
+```bash
+npm install
+
+Prisma Client 재생성 + DB 스키마 적용
+npx prisma generate
+npx prisma migrate dev --name init_zeus_on
+
+🚀 3. 서버 실행 & 스케줄러 자동 시작
+npm run dev
+
+📡 4. 핵심 API 엔드포인트
+
+Base URL: http://localhost:3000/api/
+
+기능	Method	URI	설명
+로그인	POST	/auth/login	유효한 accessToken 획득
+그룹 생성	POST	/timers/group	그룹 생성 + notifications 모듈로 초대 발송
+벼락 누적(S2S)	POST	/timers/strike	notifications 모듈이 호출 → 유저 벼락 +1
+할 일 완료	POST	/timers/group/:groupId/complete	번개 획득 + 벌칙자 선정/통보 로직 실행
+
+---
+
