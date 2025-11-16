@@ -49,6 +49,7 @@
 DATABASE_URL="file:./dev.db"
 JWT_SECRET="YOUR_OWN_VERY_SECURE_RANDOM_SECRET_KEY"
 PORT=3000
+```
 
 ### 📌 Prisma Client Singleton 체크
 
@@ -66,7 +67,7 @@ npm install
 Prisma Client 재생성 + DB 스키마 적용
 npx prisma generate
 npx prisma migrate dev --name init_zeus_on
-    ```
+```
 
 ---
 
@@ -74,9 +75,9 @@ npx prisma migrate dev --name init_zeus_on
 
 서버를 실행하면 node-cron 스케줄러가 자동으로 시작됩니다.
 
-    ```bash
+ ```bash
     npm run dev
-    ```
+ ```
 
 ---
 
