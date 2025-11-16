@@ -66,19 +66,27 @@ npm install
 Prisma Client 재생성 + DB 스키마 적용
 npx prisma generate
 npx prisma migrate dev --name init_zeus_on
-
-🚀 3. 서버 실행 & 스케줄러 자동 시작
-npm run dev
-
-📡 4. 핵심 API 엔드포인트
-
-Base URL: http://localhost:3000/api/
-
-기능	Method	URI	설명
-로그인	POST	/auth/login	유효한 accessToken 획득
-그룹 생성	POST	/timers/group	그룹 생성 + notifications 모듈로 초대 발송
-벼락 누적(S2S)	POST	/timers/strike	notifications 모듈이 호출 → 유저 벼락 +1
-할 일 완료	POST	/timers/group/:groupId/complete	번개 획득 + 벌칙자 선정/통보 로직 실행
+    ```
 
 ---
+
+## 🚀 3. 서버 실행 및 테스트
+
+서버를 실행하면 node-cron 스케줄러가 자동으로 시작됩니다.
+
+    ```bash
+    npm run dev
+    ```
+
+---
+
+## 📡 4. 핵심 API 엔드포인트  
+**Base URL: http://localhost:3000/api/**
+
+| 기능 | Method | URI | 역할 |
+|------|--------|------|------|
+| 로그인 | POST | `/auth/login` | 유효한 accessToken 획득 |
+| 그룹 생성 | POST | `/timers/group` | 그룹 타이머 생성 및 notifications 모듈로 초대 발송 트리거 |
+| 벼락 누적 (S2S) | POST | `/timers/strike` | (Internal API) notifications 모듈이 호출하여 유저의 벼락 횟수 +1 누적 |
+| 할일 완료 | POST | `/timers/group/:groupId/complete` | 번개 획득 및 벌칙자 선정/통보 로직 실행 |
 
