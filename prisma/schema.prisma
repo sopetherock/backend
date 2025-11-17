@@ -26,15 +26,132 @@ generator client {
 
 
 model User {
-  id        Int      @id @default(autoincrement())
+  id             Int      @id @default(autoincrement())
   // @id : DB가 유저 구분을 위해 쓰는 고유한 식별자 ( 학번 같은 거 )
   // 로그인 및 친구 추가 시 쓰는 ID가 아니다. 
 
-  email     String   @unique
-  username  String  @unique // 로그인 및 친구추가 시 사용될 ID 
-  passwordHash  String
-  nickname  String 
+  email          String   @unique
+  username       String  @unique // 로그인 및 친구추가 시 사용될 ID 
+  passwordHash   String
+  nickname       String 
   lightingPoints Int      @default(0)  // 번개 갯수 
-  createdAt DateTime @default(now())  // 가입 날짜 
+  createdAt      DateTime @default(now())  // 가입 날짜 
+  level          Int      @default(1) // 유저의 현재 레벨
+  fcmToken String? // 푸시 알림을 위한 FCM 토큰
+
+  // 유저가 속한 그룹 목록 (M-N 관계)
+  groupMemberships GroupMembership[]
+  // 유저가 생성한 개인 할일 목록 (1-N 관계)
+  todos            Todo[]
+
+  // 친구 관계 (내가 요청한, 내가 요청받은)
+  friendshipsSent     Friend[] @relation("UserA")
+  friendshipsReceived Friend[] @relation("UserB")
+
+  // 알림 목록 (내가 받은 알림)
+  notifications Notification[]
+
+  // 친구 실패 알림 (내가 보낸, 내가 받은)
+  failureAlertsSent     FriendFailureAlert[] @relation("FailedUser")
+  failureAlertsReceived FriendFailureAlert[] @relation("NotifiedFriend")
 }
 // User에 대한 스키마 
+
+// 기능 1: 개인 할일 (Todo)
+model Todo {
+  id        Int      @id @default(autoincrement())
+  title     String   // 할일 제목
+  owner     User     @relation(fields: [ownerId], references: [id])
+  ownerId   Int
+  
+  deadline  DateTime // 마감 기한
+  status String @default("pending") // "pending", "completed", "failed" // 할 일 상태
+  
+  // 개인 타이머와의 1:1 관계
+  timer     PersonalTimer?
+  createdAt DateTime @default(now())
+
+  failureAlert FriendFailureAlert? // 친구 실패 알림과 1:1 관계
+}
+
+// 기능 1: 개인 타이머
+model PersonalTimer {
+  id        Int      @id @default(autoincrement())
+  duration  Int      // 유저가 설정한 시간 (초 단위)
+  startTime DateTime @default(now()) // 타이머 시작 시간
+  
+  todo      Todo     @relation(fields: [todoId], references: [id])
+  todoId    Int      @unique // 1:1 관계 보장
+}
+
+// 기능 2: 그룹 (그룹 타이머 역할)
+model Group {
+  id        Int      @id @default(autoincrement())
+  deadline  DateTime // 그룹 타이머의 마감 시간
+  status    String   @default("ACTIVE") // "ACTIVE", "COMPLETED"
+  
+  // 벼락 발생 시간을 수동으로 업데이트
+  lastStrikeAt DateTime @default(now())
+  
+  // 그룹에 속한 멤버 목록 (1-N 관계)
+  members   GroupMembership[]
+}
+
+// 기능 2 & 3: 그룹 멤버 정보 (User와 Group의 연결 테이블)
+model GroupMembership {
+  id        Int      @id @default(autoincrement())
+  
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  group     Group    @relation(fields: [groupId], references: [id])
+  groupId   Int
+  
+  // 기능 3: 벼락(부정적) 누적 횟수
+  thunderCount Int    @default(0)
+  
+  status    String   @default("INVITED") // "INVITED", "ACCEPTED", "COMPLETED"
+  
+  @@unique([userId, groupId]) // 한 유저가 한 그룹에 중복 참여 방지
+}
+
+// 4. [신규] 친구 (알림 5번용)
+model Friend {
+  id     Int  @id @default(autoincrement())
+  userA  User @relation("UserA", fields: [userAId], references: [id])
+  userAId Int // 친구 요청 보낸 사람
+  userB  User @relation("UserB", fields: [userBId], references: [id])
+  userBId Int // 친구 요청 받은 사람
+  status String @default("PENDING") // "PENDING", "ACCEPTED"
+
+  @@unique([userAId, userBId])
+}
+
+// 5. [신규] 알림 로그 (알림 1~4번 기록용)
+model Notification {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int      // 알림을 받은 유저
+  type      String   // "group_invite", "lightning_strike", "task_due", "task_failed"
+  message   String
+  isRead    Boolean  @default(false)
+  relatedId Int?     // 알림 클릭 시 이동할 ID (예: groupId, todoId)
+  createdAt DateTime @default(now())
+}
+
+// 6. [신규] 친구 실패 알림 (알림 5번 팝업용)
+model FriendFailureAlert {
+  id               Int      @id @default(autoincrement())
+  
+  failedUser       User     @relation("FailedUser", fields: [failedUserId], references: [id])
+  failedUserId     Int      // 벼락치기 실패한 유저
+  
+  notifiedFriend   User     @relation("NotifiedFriend", fields: [notifiedFriendId], references: [id])
+  notifiedFriendId Int      // 알림(팝업)을 받은 친구
+  
+  failedTodo       Todo     @relation(fields: [failedTodoId], references: [id])
+  failedTodoId     Int      @unique // 실패한 '할일' 1개당 알림 1개
+  
+  status           String   @default("PENDING") // "PENDING", "RESOLVED" (친구가 팝업을 봤는지)
+  actionTaken      String?  // "STRIKE", "LATER" (친구가 선택한 액션)
+  createdAt        DateTime @default(now())
+}

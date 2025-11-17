@@ -4,7 +4,7 @@ import cors from "cors";
 import authRouter from "./modules/auth/auth.routes.js";
 import socialRouter from "./modules/social/social.routes.js";
 import timerRouter from "./modules/timers/timer.routes.js";
-import notificationRouter from "./modules/notifications/notification.routes.js";
+import notificationRouter from "./modules/notifications/notifications.routes.js";
 import questRouter from './modules/quests/quests.routes.js';
 
 const app = express(); //express()실행
@@ -16,7 +16,7 @@ app.use(express.json());
 app.use("/api/auth", authRouter);
 app.use("/api/social", socialRouter);
 app.use("/api/timer", timerRouter);
-app.use("/api/notify", notificationRouter);
+app.use("/api/notifications", notificationRouter);
 app.use('/api/quests', questRouter);
 
 app.get("/", (req, res) => {
