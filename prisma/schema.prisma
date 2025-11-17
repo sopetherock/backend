@@ -29,12 +29,70 @@ model User {
   id        Int      @id @default(autoincrement())
   // @id : DB가 유저 구분을 위해 쓰는 고유한 식별자 ( 학번 같은 거 )
   // 로그인 및 친구 추가 시 쓰는 ID가 아니다. 
-
+  firebaseUid String   @unique @map("firebase_uid")
   email     String   @unique
   username  String  @unique // 로그인 및 친구추가 시 사용될 ID 
-  passwordHash  String
+  //비밀번호는 firebase가 관리하므로 지움
   nickname  String 
   lightingPoints Int      @default(0)  // 번개 갯수 
-  createdAt DateTime @default(now())  // 가입 날짜 
+  createdAt DateTime @default(now())  // 가입 날짜
+  level     Int      @default(1) // 유저의 현재 레벨
+
+  // 유저가 속한 그룹 목록 (M-N 관계)
+  groupMemberships GroupMembership[]
+  // 유저가 생성한 개인 할일 목록 (1-N 관계)
+  todos            Todo[]
 }
 // User에 대한 스키마 
+
+// 기능 1: 개인 할일 (Todo)
+model Todo {
+  id        Int      @id @default(autoincrement())
+  title     String   // 할일 제목
+  owner     User     @relation(fields: [ownerId], references: [id])
+  ownerId   Int
+  
+  // 개인 타이머와의 1:1 관계
+  timer     PersonalTimer?
+  createdAt DateTime @default(now())
+}
+
+// 기능 1: 개인 타이머
+model PersonalTimer {
+  id        Int      @id @default(autoincrement())
+  duration  Int      // 유저가 설정한 시간 (초 단위)
+  startTime DateTime @default(now()) // 타이머 시작 시간
+  
+  todo      Todo     @relation(fields: [todoId], references: [id])
+  todoId    Int      @unique // 1:1 관계 보장
+}
+
+// 기능 2: 그룹 (그룹 타이머 역할)
+model Group {
+  id        Int      @id @default(autoincrement())
+  deadline  DateTime // 그룹 타이머의 마감 시간
+  status    String   @default("ACTIVE") // "ACTIVE", "COMPLETED"
+  
+  // 벼락 발생 시간을 수동으로 업데이트
+  lastStrikeAt DateTime @default(now())
+  
+  // 그룹에 속한 멤버 목록 (1-N 관계)
+  members   GroupMembership[]
+}
+
+// 기능 2 & 3: 그룹 멤버 정보 (User와 Group의 연결 테이블)
+model GroupMembership {
+  id        Int      @id @default(autoincrement())
+  
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  group     Group    @relation(fields: [groupId], references: [id])
+  groupId   Int
+  
+  // 기능 3: 벼락(부정적) 누적 횟수
+  thunderCount Int    @default(0)
+  
+  status    String   @default("INVITED") // "INVITED", "ACCEPTED", "COMPLETED"
+  
+  @@unique([userId, groupId]) // 한 유저가 한 그룹에 중복 참여 방지
+}
