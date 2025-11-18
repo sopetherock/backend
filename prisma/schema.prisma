@@ -26,17 +26,18 @@ generator client {
 
 
 model User {
-  id             Int      @id @default(autoincrement())
+  id        Int      @id @default(autoincrement())
   // @id : DB가 유저 구분을 위해 쓰는 고유한 식별자 ( 학번 같은 거 )
   // 로그인 및 친구 추가 시 쓰는 ID가 아니다. 
 
-  email          String   @unique
-  username       String  @unique // 로그인 및 친구추가 시 사용될 ID 
-  passwordHash   String
-  nickname       String 
+  firebaseUid String   @unique @map("firebase_uid")
+  email     String   @unique
+  username  String  @unique // 로그인 및 친구추가 시 사용될 ID 
+  //비밀번호는 firebase가 관리하므로 지움
+  nickname  String 
   lightingPoints Int      @default(0)  // 번개 갯수 
-  createdAt      DateTime @default(now())  // 가입 날짜 
-  level          Int      @default(1) // 유저의 현재 레벨
+  createdAt DateTime @default(now())  // 가입 날짜
+  level     Int      @default(1) // 유저의 현재 레벨
   fcmToken String? // 푸시 알림을 위한 FCM 토큰
 
   // 유저가 속한 그룹 목록 (M-N 관계)
@@ -114,7 +115,7 @@ model GroupMembership {
   @@unique([userId, groupId]) // 한 유저가 한 그룹에 중복 참여 방지
 }
 
-// 4. [신규] 친구 (알림 5번용)
+// 4. [신규] 친구 (친구 실패 알림용)
 model Friend {
   id     Int  @id @default(autoincrement())
   userA  User @relation("UserA", fields: [userAId], references: [id])
@@ -138,7 +139,7 @@ model Notification {
   createdAt DateTime @default(now())
 }
 
-// 6. [신규] 친구 실패 알림 (알림 5번 팝업용)
+// 6. [신규] 친구 실패 알림 (친구 실패 알림 팝업용)
 model FriendFailureAlert {
   id               Int      @id @default(autoincrement())
   
@@ -154,4 +155,6 @@ model FriendFailureAlert {
   status           String   @default("PENDING") // "PENDING", "RESOLVED" (친구가 팝업을 봤는지)
   actionTaken      String?  // "STRIKE", "LATER" (친구가 선택한 액션)
   createdAt        DateTime @default(now())
+=======
+>>>>>>> main
 }
