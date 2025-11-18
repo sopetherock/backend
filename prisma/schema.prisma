@@ -56,7 +56,7 @@ model User {
 }
 // User에 대한 스키마 
 
-// 기능 1: 개인 할일 (Todo)
+// 개인 할일 (Todo)
 model Todo {
   id        Int      @id @default(autoincrement())
   title     String   // 할일 제목
@@ -73,7 +73,7 @@ model Todo {
   failureAlert FriendFailureAlert? // 친구 실패 알림과 1:1 관계
 }
 
-// 기능 1: 개인 타이머
+// 개인 타이머
 model PersonalTimer {
   id        Int      @id @default(autoincrement())
   duration  Int      // 유저가 설정한 시간 (초 단위)
@@ -83,7 +83,7 @@ model PersonalTimer {
   todoId    Int      @unique // 1:1 관계 보장
 }
 
-// 기능 2: 그룹 (그룹 타이머 역할)
+// 그룹 (그룹 타이머 역할)
 model Group {
   id        Int      @id @default(autoincrement())
   deadline  DateTime // 그룹 타이머의 마감 시간
@@ -96,7 +96,7 @@ model Group {
   members   GroupMembership[]
 }
 
-// 기능 2 & 3: 그룹 멤버 정보 (User와 Group의 연결 테이블)
+// 그룹 멤버 정보 (User와 Group의 연결 테이블)
 model GroupMembership {
   id        Int      @id @default(autoincrement())
   
@@ -105,7 +105,7 @@ model GroupMembership {
   group     Group    @relation(fields: [groupId], references: [id])
   groupId   Int
   
-  // 기능 3: 벼락(부정적) 누적 횟수
+  // 벼락 누적 횟수
   thunderCount Int    @default(0)
   
   status    String   @default("INVITED") // "INVITED", "ACCEPTED", "COMPLETED"
@@ -123,7 +123,7 @@ model Friend {
   addressee User @relation("AddresseeRelation", fields: [addresseeId], references: [id])
 }
 
-// 5. [신규] 알림 로그 (알림 1~4번 기록용)
+// 알림 로그
 model Notification {
   id        Int      @id @default(autoincrement())
   user      User     @relation(fields: [userId], references: [id])
@@ -135,7 +135,7 @@ model Notification {
   createdAt DateTime @default(now())
 }
 
-// 6. [신규] 친구 실패 알림 (친구 실패 알림 팝업용)
+// 친구 실패 알림 (친구 실패 알림 팝업용)
 model FriendFailureAlert {
   id               Int      @id @default(autoincrement())
   
