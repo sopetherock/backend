@@ -7,5 +7,6 @@ const router = express.Router();
 
 router.get('/test', notificationController.testApi); // 테스트용 API 엔드포인트
 router.post('/invite', notificationController.handleGroupInvite); // 그룹 타이머 초대 알림 수신 API
+router.post('/lightning', notificationController.handleLightningStrike); // 벼락(그룹타이머) 알림 수신 API
 
 export default router;

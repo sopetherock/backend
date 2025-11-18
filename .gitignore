@@ -21,3 +21,6 @@ Thumbs.db
 
 # Key
 serviceAccountKey.json
+
+# Local Test Script
+seed.js

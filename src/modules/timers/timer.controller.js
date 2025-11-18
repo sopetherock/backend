@@ -200,6 +200,15 @@ export const addStrike = async (req, res) => {
       data: { lastStrikeAt: new Date() }, // ⬅️ 현재 시간으로 갱신
     });
 
+    // Notification 서버로 알림 요청 보내기
+    const notificationApiUrl = `http://localhost:${process.env.PORT || 3000}/api/notifications/lightning`;
+    
+    // 비동기로 요청 (await 안 씀 - 알림 실패해도 벼락은 성공 처리)
+    axios.post(notificationApiUrl, {
+      targetUserId: userId, // 벼락 맞은 사람 ID
+      groupId: groupId,     // 어느 그룹인지
+    }).catch(err => console.error('⚡ 벼락 알림 요청 실패:', err.message));
+
     res.status(200).json({ message: 'Strike processed.' });
   } catch (error) {
     console.error('🔥 벼락 누적 API 오류:', error);
@@ -279,3 +288,48 @@ async function findLoserAndDisband(groupId) {
     console.error('🔥 그룹 해체/벌칙자 선정 오류:', error);
   }
 }
+
+/**
+ * API: GET /api/timer/urgent
+ * 기능: 위젯용 - 마감이 가장 임박한(24시간 이내) 할 일 1개 조회
+ * (푸시 알림 없이 데이터만 제공)
+ */
+export const getUrgentTask = async (req, res) => {
+  try {
+    const userId = req.user.id; // authMiddleware가 준 유저 ID
+    const now = new Date();
+    const twentyFourHoursLater = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+    // 조건에 맞는 가장 급한 할 일 1개 찾기
+    const urgentTask = await prisma.todo.findFirst({
+      where: {
+        ownerId: userId,       // 내 할 일
+        status: 'pending',     // 아직 안 끝난 것
+        deadline: {
+          gt: now,                  // 이미 지난 건 제외
+          lte: twentyFourHoursLater // 24시간 이내인 것
+        },
+      },
+      orderBy: {
+        deadline: 'asc', // 마감 시간이 빠른 순서대로 정렬
+      },
+      select: {
+        id: true,
+        title: true,
+        deadline: true, // 위젯이 시간 계산하려면 이게 필수!
+      }
+    });
+
+    // 급한 게 없으면 null 반환 (위젯이 '할 일 없음' 띄우도록)
+    if (!urgentTask) {
+      return res.status(200).json({ task: null });
+    }
+
+    // 3. 할 일 정보 반환
+    res.status(200).json({ task: urgentTask });
+
+  } catch (error) {
+    console.error('🔥 위젯 데이터 조회 오류:', error);
+    res.status(500).json({ message: '서버 오류' });
+  }
+};

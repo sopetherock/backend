@@ -7,6 +7,7 @@ import {
   acceptGroupInvite,
   completeGroupTask,
   addStrike,
+  getUrgentTask,
 } from './timer.controller.js'; // 1. 컨트롤러 함수들 import
 const router = express.Router();
 
@@ -30,5 +31,8 @@ router.post('/group/:groupId/complete', authMiddleware, completeGroupTask);
 // 님이 정의한 API: POST /api/timers/strike
 // (서버 간 통신이므로 authMiddleware가 필요 없습니다)
 router.post('/strike', addStrike);
+
+// 기능 4: 위젯용 데이터 조회 API
+router.get('/urgent', authMiddleware, getUrgentTask);
 
 export default router;
