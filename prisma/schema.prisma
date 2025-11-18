@@ -155,6 +155,4 @@ model FriendFailureAlert {
   status           String   @default("PENDING") // "PENDING", "RESOLVED" (친구가 팝업을 봤는지)
   actionTaken      String?  // "STRIKE", "LATER" (친구가 선택한 액션)
   createdAt        DateTime @default(now())
-=======
->>>>>>> main
 }
