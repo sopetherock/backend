@@ -1,25 +1,23 @@
-import admin from 'firebase-admin';
-// ESM (import) 방식에서는 json 파일을 이렇게 불러옵니다.
-import serviceAccount from '../../serviceAccountKey.json' with { type: 'json' };
-
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
-});
+// 중앙에서 관리하는 admin 객체 사용
+import admin from '../config/firebase.js';
 
 /**
  * 푸시 알림을 전송하는 함수
  * @param {string} fcmToken - 알림 받을 유저의 fcmToken
  * @param {string} title - 알림 제목
  * @param {string} body - 알림 내용
- * @param {object} data - (선택) Flutter가 받을 데이터 (예: { type: 'group_invite', groupId: '123' })
+ * @param {object} data - (선택) Flutter가 받을 데이터
  */
 export const sendPushNotification = async (fcmToken, title, body, data = {}) => {
+  // 토큰이 없으면 전송 시도조차 하지 않음
+  if (!fcmToken) return;
+
   const message = {
     notification: {
       title,
       body,
     },
-    data: data, // ⬅️ Flutter가 백그라운드에서 처리할 데이터
+    data: data, 
     token: fcmToken,
   };
 
