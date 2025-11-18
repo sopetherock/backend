@@ -20,7 +20,7 @@ export const searchUser = async (req, res) => {
 
 export const sendRequest = async (req, res) => {
     try {
-        const requesterId = req.user.userId;
+        const requesterId = req.user.id;
         const targetId = Number(req.params.targetId);
 
         const result = await requestFriend(requesterId, targetId);
@@ -52,7 +52,7 @@ export const getFriendList = async (req, res) => {
 
 export const createGroup = async (req, res) => {
     try {
-        const userId = req.user.userId;
+        const userId = req.user.id;
         const { deadline, invitedFriendIds } = req.body;
 
         const group = await makeGroupWithFriends(userId, deadline, invitedFriendIds);
