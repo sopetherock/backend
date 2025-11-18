@@ -72,14 +72,36 @@ export const makeGroupWithFriends = async (
     deadline,
     invitedIds = []
     ) => {
-    // 1) 그룹 생성
+    // 1) [검증] 초대하려는 유저들이 진짜 친구인지 DB 확인
+  // (invitedIds가 비어있으면 검증 생략)
+  let validInvitedIds = [];
+
+  if (invitedIds.length > 0) {
+    // 'ACCEPTED' 상태인 친구 관계 조회
+    const friendships = await prisma.friend.findMany({
+      where: {
+        status: "ACCEPTED",
+        OR: [
+          { requesterId: creatorId, addresseeId: { in: invitedIds } }, // 내가 신청한 친구들
+          { addresseeId: creatorId, requesterId: { in: invitedIds } }, // 나에게 신청한 친구들
+        ],
+      },
+    });
+
+    // 조회된 관계에서 친구 ID만 추출
+    validInvitedIds = friendships.map((f) =>
+      f.requesterId === creatorId ? f.addresseeId : f.requesterId
+    );
+  }
+
+  // 2) 그룹 생성 (Timer 모듈을 위해 deadline 저장)
     const group = await prisma.group.create({
         data: {
         deadline: new Date(deadline),
         },
     });
 
-    // 2) 생성자를 ACCEPTED 상태로 추가
+    // 3) 생성자를 ACCEPTED 상태로 추가
     await prisma.groupMembership.create({
         data: {
         groupId: group.id,
@@ -88,16 +110,17 @@ export const makeGroupWithFriends = async (
         },
     });
 
-    // 3) 초대한 친구들을 INVITED 상태로 추가
-    if (invitedIds.length > 0) {
-        await prisma.groupMembership.createMany({
-        data: invitedIds.map((id) => ({
-            groupId: group.id,
-            userId: id,
-            status: "INVITED",
-        })),
-        });
-    }
+    // 4) [수정] '검증된 친구들(validInvitedIds)'만 초대
+  if (validInvitedIds.length > 0) {
+    await prisma.groupMembership.createMany({
+      data: validInvitedIds.map((id) => ({
+        groupId: group.id,
+        userId: id,
+        status: "INVITED",
+      })),
+    });
+  }
 
-    return group;
+  // 컨트롤러에게 '그룹 정보'와 '실제로 초대된 유저 목록'을 반환
+  return { group, invitedUsers: validInvitedIds };
 };

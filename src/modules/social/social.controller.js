@@ -6,6 +6,7 @@ import {
     listFriends,
     makeGroupWithFriends,
 } from "./social.service.js";
+import axios from 'axios';
 
 export const searchUser = async (req, res) => {
     try {
@@ -55,9 +56,23 @@ export const createGroup = async (req, res) => {
         const userId = req.user.id;
         const { deadline, invitedFriendIds } = req.body;
 
-        const group = await makeGroupWithFriends(userId, deadline, invitedFriendIds);
-        res.json(group);
-    } catch (err) {
-        res.status(500).json({ message: err.message });
+        const {group, invitedUsers} = await makeGroupWithFriends(userId, deadline, invitedFriendIds);
+    // 2. [핵심] 알림(Notifications) 모듈에 "초대장 발송" 요청
+    // (검증된 친구들에게만 알림이 갑니다)
+        if (invitedUsers.length > 0) {
+            const notificationApiUrl = `http://localhost:3000/api/notifications/invite`;
+      
+            // 비동기로 요청 (응답 안 기다림)
+            axios.post(notificationApiUrl, {
+                groupId: group.id,
+                inviterName: req.user.nickname, // (JWT payload에 닉네임이 있다면)
+                invitedUserIds: invitedUsers,
+      }).catch(err => console.error("🔥 알림 전송 실패:", err.message));
     }
+
+    res.json(group);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: err.message });
+  }
 };
