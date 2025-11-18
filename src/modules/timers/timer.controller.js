@@ -1,6 +1,7 @@
 // src/modules/timers/timer.controller.js
 import prisma from '../../config/db.js';
 import axios from 'axios'; // API 호출을 위해 import
+import { makeGroupWithFriends } from '../social/social.service.js';
 
 // --- 기능 1: 개인 할일 ---
 
@@ -38,89 +39,44 @@ export const createPersonalTimer = async (req, res) => {
   }
 };
 
-// --- 기능 2: 그룹 타이머 ---
+
+// --- 기능 2: 그룹 타이머 (Social 연동 + 알림 발송) ---
 
 /**
  * API: POST /api/timers/group
- * 기능: 그룹 타이머(Group) 생성 및 초대
+ * 역할: Social 모듈을 통해 그룹을 만들고, Notification 모듈에 초대장을 보냅니다.
  */
 export const createGroupTimer = async (req, res) => {
   try {
-    const { deadline, invitedUserIds } = req.body; // 마감시간, 초대할 유저 ID 배열
-    const creatorId = req.user.userId;
+    const userId = req.user.id; // (authMiddleware가 준 유저 ID)
+    const { deadline, invitedUserIds } = req.body;
 
-    // 1. 그룹(타이머) 생성
-    const newGroup = await prisma.group.create({
-      data: {
-        deadline: new Date(deadline),
-      },
-    });
+    // 1. [Social 모듈 사용] 그룹 생성 및 친구 관계 검증
+    // makeGroupWithFriends는 { group, invitedUsers } 객체를 반환합니다.
+    const { group, invitedUsers } = await makeGroupWithFriends(
+      userId,
+      deadline,
+      invitedUserIds
+    );
 
-    // 2. 멤버 정보(GroupMembership) 생성
-    // 2-1. 초대자 본인 (즉시 'ACCEPTED' 상태)
-    await prisma.groupMembership.create({
-      data: {
-        groupId: newGroup.id,
-        userId: creatorId,
-        status: 'ACCEPTED', // 만든 사람은 자동 수락
-      },
-    });
+    // 2. [Notification 모듈 호출] 초대 알림 발송
+    // 실제로 초대된(검증된) 친구가 있을 때만 발송합니다.
+    if (invitedUsers.length > 0) {
+      const notificationApiUrl = `http://localhost:3000/api/notifications/invite`;
 
-    // 2-2. 초대받은 친구들 ('INVITED' 상태)
-    if (invitedUserIds && invitedUserIds.length > 0) {
-      const inviteData = invitedUserIds.map((id) => ({
-        groupId: newGroup.id,
-        userId: id,
-        status: 'INVITED',
-      }));
-      await prisma.groupMembership.createMany({
-        data: inviteData,
-      });
+      // 비동기 호출 (응답을 기다리지 않음으로써 사용자 경험 향상)
+      axios.post(notificationApiUrl, {
+        groupId: group.id,
+        inviterName: req.user.nickname, // 초대자 닉네임
+        invitedUserIds: invitedUsers,   // 검증된 친구 ID 목록
+      }).catch(err => console.error("🔥 초대 알림 전송 실패:", err.message));
     }
 
-    // 3. [A] Timer -> Notifications (초대장 발송 요청)
-    const notificationApiUrl = 'http://localhost:3000/api/notifications/invite'; // (팀원이 만들 API)
-    axios.post(notificationApiUrl, {
-        groupId: newGroup.id,
-        inviterName: req.user.nickname, // (authMiddleware가 닉네임도 준다고 가정)
-        invitedUserIds: invitedUserIds,
-      })
-      .catch((err) => {
-        // 알림 전송이 실패해도 그룹 생성은 성공한 것. 로그만 남김
-        console.error('🔥 초대 알림 전송 실패:', err.message);
-      });
+    // 3. 생성된 그룹 정보 반환
+    res.status(201).json(group);
 
-    res.status(201).json(newGroup);
   } catch (error) {
     console.error('🔥 그룹 타이머 생성 오류:', error);
-    res.status(500).json({ message: '서버 오류' });
-  }
-};
-
-/**
- * API: POST /api/timers/group/:groupId/accept
- * 기능: 그룹 초대 수락
- */
-export const acceptGroupInvite = async (req, res) => {
-  try {
-    const userId = req.user.userId;
-    const groupId = parseInt(req.params.groupId); // URL 파라미터
-
-    // 'INVITED' 상태인 멤버를 'ACCEPTED'로 변경
-    await prisma.groupMembership.updateMany({
-      where: {
-        userId: userId,
-        groupId: groupId,
-        status: 'INVITED',
-      },
-      data: {
-        status: 'ACCEPTED',
-      },
-    });
-
-    res.status(200).json({ message: '그룹에 참여했습니다.' });
-  } catch (error) {
-    console.error('🔥 그룹 참여 오류:', error);
     res.status(500).json({ message: '서버 오류' });
   }
 };

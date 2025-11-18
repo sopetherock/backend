@@ -44,10 +44,8 @@ model User {
   groupMemberships GroupMembership[]
   // 유저가 생성한 개인 할일 목록 (1-N 관계)
   todos            Todo[]
-
-  // 친구 관계 (내가 요청한, 내가 요청받은)
-  friendshipsSent     Friend[] @relation("UserA")
-  friendshipsReceived Friend[] @relation("UserB")
+  requestedFriends Friend[] @relation("RequesterRelation")
+  receivedFriends  Friend[] @relation("AddresseeRelation")
 
   // 알림 목록 (내가 받은 알림)
   notifications Notification[]
@@ -115,16 +113,14 @@ model GroupMembership {
   @@unique([userId, groupId]) // 한 유저가 한 그룹에 중복 참여 방지
 }
 
-// 4. [신규] 친구 (친구 실패 알림용)
 model Friend {
-  id     Int  @id @default(autoincrement())
-  userA  User @relation("UserA", fields: [userAId], references: [id])
-  userAId Int // 친구 요청 보낸 사람
-  userB  User @relation("UserB", fields: [userBId], references: [id])
-  userBId Int // 친구 요청 받은 사람
-  status String @default("PENDING") // "PENDING", "ACCEPTED"
+  id        Int      @id @default(autoincrement())
+  requesterId Int
+  addresseeId Int
+  status    String   @default("PENDING") // PENDING | ACCEPTED
 
-  @@unique([userAId, userBId])
+  requester User @relation("RequesterRelation", fields: [requesterId], references: [id])
+  addressee User @relation("AddresseeRelation", fields: [addresseeId], references: [id])
 }
 
 // 5. [신규] 알림 로그 (알림 1~4번 기록용)
