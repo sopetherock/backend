@@ -42,6 +42,8 @@ model User {
   groupMemberships GroupMembership[]
   // 유저가 생성한 개인 할일 목록 (1-N 관계)
   todos            Todo[]
+  requestedFriends Friend[] @relation("RequesterRelation")
+  receivedFriends  Friend[] @relation("AddresseeRelation")
 }
 // User에 대한 스키마 
 
@@ -95,4 +97,14 @@ model GroupMembership {
   status    String   @default("INVITED") // "INVITED", "ACCEPTED", "COMPLETED"
   
   @@unique([userId, groupId]) // 한 유저가 한 그룹에 중복 참여 방지
+}
+
+model Friend {
+  id        Int      @id @default(autoincrement())
+  requesterId Int
+  addresseeId Int
+  status    String   @default("PENDING") // PENDING | ACCEPTED
+
+  requester User @relation("RequesterRelation", fields: [requesterId], references: [id])
+  addressee User @relation("AddresseeRelation", fields: [addresseeId], references: [id])
 }
