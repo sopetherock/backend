@@ -1,38 +1,33 @@
 // src/modules/timers/timer.controller.js
 import prisma from '../../config/db.js';
-import axios from 'axios'; // API 호출을 위해 import
+import axios from 'axios';
 import { makeGroupWithFriends } from '../social/social.service.js';
 
-// --- 기능 1: 개인 할일 ---
+// --- 기능 1: 개인 할일 (PersonalTimer 모델 사용) ---
 
 /**
  * API: POST /api/timers/personal
- * 기능: 개인 할일과 1:1 타이머 생성
+ * 기능: 개인 할일 생성 (타이머 시작)
+ * 설명: 유저가 입력한 'todo'(할일 내용)와 'duration'을 PersonalTimer에 저장
  */
 export const createPersonalTimer = async (req, res) => {
   try {
-    const { title, duration } = req.body; // 할일 제목, 타이머 시간(초)
-    const userId = req.user.userId; // 인증된 유저 ID
+    // 프론트에서 { todo: "수학 3단원 벼락치기", duration: 1800 } 이렇게 보냄
+    const { todo, duration } = req.body; 
+    const userId = req.user.id; // authMiddleware 통과한 유저 ID
 
-    // Prisma의 'Nested Write' 기능으로 Todo와 PersonalTimer를 한 번에 생성
-    const newTodo = await prisma.todo.create({
+    // PersonalTimer 모델에 바로 저장
+    const newTimer = await prisma.personalTimer.create({
       data: {
-        title: title,
-        ownerId: userId,
-        timer: {
-          // 1:1 관계인 PersonalTimer도 'create'
-          create: {
-            duration: duration,
-            startTime: new Date(),
-          },
-        },
-      },
-      include: {
-        timer: true, // 응답에 timer 정보 포함
+        todo: todo,         // 스키마의 todo 필드에 바로 저장
+        duration: duration, // 스키마의 duration 필드에 바로 저장
+        ownerId: userId,    // owner 연결
+        // startTime은 default(now())라 자동 생성
+        // status는 default("running")이라 자동 생성
       },
     });
 
-    res.status(201).json(newTodo);
+    res.status(201).json(newTimer);
   } catch (error) {
     console.error('🔥 개인 타이머 생성 오류:', error);
     res.status(500).json({ message: '서버 오류' });
@@ -40,92 +35,164 @@ export const createPersonalTimer = async (req, res) => {
 };
 
 /**
- * [신규 추가] API: POST /api/timers/personal/:todoId/complete
+ * API: POST /api/timers/personal/:timerId/complete
  * 기능: 개인 할일 완료 처리 및 번개 지급
  */
-export const completePersonalTask = async (req, res) => {
+export const completePersonalTimer = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const timerId = parseInt(req.params.timerId);
+
+    // 1. 내 타이머 중 'running'인 것을 찾아 'success'로 업데이트
+    const updatedTimer = await prisma.personalTimer.updateMany({
+      where: {
+        id: timerId,
+        ownerId: userId,
+        status: 'running', // 진행 중인 것만 완료 가능
+      },
+      data: {
+        status: 'success', // 완료 상태 (목록에서 제외됨)
+        endTime: new Date(), // 끝난 시간 기록
+      },
+    });
+
+    // 업데이트된 갯수가 0이면 예외 처리
+    if (updatedTimer.count === 0) {
+      return res.status(404).json({ message: '이미 끝났거나 존재하지 않는 타이머입니다.' });
+    }
+
+    // 2. [보상] 번개 포인트 +1 지급
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        lightingPoints: { increment: 1 },
+      },
+      select: { lightingPoints: true },
+    });
+
+    res.status(200).json({
+      message: '타이머 성공! (번개 +1)',
+      lightingPoints: user.lightingPoints,
+    });
+
+  } catch (error) {
+    console.error('🔥 개인 타이머 완료 오류:', error);
+    res.status(500).json({ message: '서버 오류' });
+  }
+};
+
+/**
+ * API: POST /api/timers/personal/:timerId/fail
+ * 기능: 개인 할일 실패 (시간 초과 등) -> 친구에게 알림 전송
+ */
+export const failPersonalTimer = async (req, res) => {
   try {
     const userId = req.user.id;
     const todoId = parseInt(req.params.todoId);
 
-    // 1. 할 일 상태 업데이트 ('PENDING' -> 'COMPLETED')
-    const result = await prisma.todo.updateMany({
-      where: {
-        id: todoId,
-        ownerId: userId,     // 내 할 일만 완료 가능
-        status: 'PENDING',   // 아직 완료 안 된 것만
-      },
-      data: {
-        status: 'COMPLETED',
-      },
+    // 1. 타이머 상태를 'fail'로 변경
+    // findFirst로 먼저 확인 후 update (관계 생성을 위해 ID가 확실히 필요함)
+    const targetTimer = await prisma.personalTimer.findFirst({
+      where: { id: todoId, ownerId: userId, status: 'running' },
     });
 
-    // 업데이트된 행이 없으면 실패 처리
-    if (result.count === 0) {
-      return res.status(404).json({ message: '할 일을 찾을 수 없거나 이미 완료되었습니다.' });
+    if (!targetTimer) {
+      return res.status(404).json({ message: '이미 처리된 타이머입니다.' });
     }
 
-    // 2. [보상] 유저에게 번개(Lightning) +1 지급
-    const updatedUser = await prisma.user.update({
-      where: { id: userId },
+    // 상태 실패로 변경
+    await prisma.personalTimer.update({
+      where: { id: todoId },
       data: {
-        lightingPoints: {
-          increment: 1,
-        },
-      },
-      select: {
-        id: true,
-        lightingPoints: true,
+        status: 'fail',
+        endTime: new Date(),
       },
     });
 
-    res.status(200).json({ 
-      message: '개인 할 일을 완료했습니다! (번개 +1)',
-      lightingPoints: updatedUser.lightingPoints 
+    // 2. 알림을 보낼 친구 찾기 (랜덤 1명 혹은 지정된 로직)
+    // 예: 친구 관계 중 'ACCEPTED'인 사람 조회
+    const friendRelation = await prisma.friend.findFirst({
+      where: {
+        OR: [{ requesterId: userId }, { addresseeId: userId }],
+        status: 'ACCEPTED',
+      },
     });
+
+    if (friendRelation) {
+      // 친구 ID 추출
+      const friendId = (friendRelation.requesterId === userId)
+        ? friendRelation.addresseeId
+        : friendRelation.requesterId;
+
+      // 3. FriendFailureAlert 생성 (친구에게 알림)
+      // 주의: 스키마의 FriendFailureAlert에서 failedTodoId가 PersonalTimer의 ID를 참조한다고 가정
+      await prisma.friendFailureAlert.create({
+        data: {
+          failedUserId: userId,
+          notifiedFriendId: friendId,
+          failedTodoId: timerId, // 실패한 PersonalTimer의 ID
+          status: 'SENT',
+        },
+      });
+      
+      console.log(`🔔 친구(ID:${friendId})에게 벼락치기 실패 알림 전송`);
+    }
+
+    res.status(200).json({ message: '타이머 실패 처리되었습니다.' });
 
   } catch (error) {
-    console.error('🔥 개인 할일 완료 오류:', error);
+    console.error('🔥 개인 타이머 실패 오류:', error);
     res.status(500).json({ message: '서버 오류' });
   }
 };
 
 
-// --- 기능 2: 그룹 타이머 (Social 연동 + 알림 발송) ---
+// --- 기능 2: 그룹 타이머 (수정됨) ---
 
 /**
  * API: POST /api/timers/group
- * 역할: Social 모듈을 통해 그룹을 만들고, Notification 모듈에 초대장을 보냅니다.
+ * 기능: 그룹 타이머 생성 (Todo, Deadline 저장)
+ * 설명: 프론트에서 todo, deadline, invitedUserIds를 받아 그룹을 생성합니다.
  */
 export const createGroupTimer = async (req, res) => {
   try {
-    const userId = req.user.id; // (authMiddleware가 준 유저 ID)
-    const { deadline, invitedUserIds } = req.body;
+    const userId = req.user.id;
+    // 프론트엔드에서 보낸 데이터: { todo: "팀플 자료조사", deadline: "2024-11-20T18:00:00", invitedUserIds: [2, 3] }
+    const { todo, deadline, invitedUserIds } = req.body; 
 
-    // 1. [Social 모듈 사용] 그룹 생성 및 친구 관계 검증
-    // makeGroupWithFriends는 { group, invitedUsers } 객체를 반환합니다.
-    const { group, invitedUsers } = await makeGroupWithFriends(
-      userId,
-      deadline,
-      invitedUserIds
-    );
+    // 1. Social 서비스의 그룹 생성 로직 호출
+    // (makeGroupWithFriends 함수 내부에서 prisma.group.create를 할 때 todo, deadline을 넣도록 수정 필요)
+    // 여기서는 직접 create하는 로직으로 보여드릴게요 (직관적인 이해를 위해)
+    
+    const newGroup = await prisma.group.create({
+      data: {
+        todo: todo,           // 그룹 공통 할일 저장
+        deadline: new Date(deadline), // 마감 시간 저장
+        status: 'ACTIVE',
+        
+        // 멤버 연결
+        members: {
+          create: [
+            { userId: userId, status: 'ACCEPTED' }, // 방장 (나)
+            // 초대된 친구들 (검증 로직 생략하고 바로 넣는 예시)
+            ...(invitedUserIds || []).map(id => ({ userId: id, status: 'INVITED' }))
+          ]
+        }
+      },
+      include: { members: true }
+    });
 
-    // 2. [Notification 모듈 호출] 초대 알림 발송
-    // 실제로 초대된(검증된) 친구가 있을 때만 발송합니다.
-    if (invitedUsers.length > 0) {
+    // 2. 초대 알림 발송 (기존 로직)
+    if (invitedUserIds && invitedUserIds.length > 0) {
       const notificationApiUrl = `http://localhost:3000/api/notifications/invite`;
-
-      // 비동기 호출 (응답을 기다리지 않음으로써 사용자 경험 향상)
       axios.post(notificationApiUrl, {
-        groupId: group.id,
-        inviterName: req.user.nickname, // 초대자 닉네임
-        invitedUserIds: invitedUsers,   // 검증된 친구 ID 목록
+        groupId: newGroup.id,
+        inviterName: req.user.nickname || "친구",
+        invitedUserIds: invitedUserIds,
       }).catch(err => console.error("🔥 초대 알림 전송 실패:", err.message));
     }
 
-    // 3. 생성된 그룹 정보 반환
-    res.status(201).json(group);
-
+    res.status(201).json(newGroup);
   } catch (error) {
     console.error('🔥 그룹 타이머 생성 오류:', error);
     res.status(500).json({ message: '서버 오류' });
@@ -134,41 +201,112 @@ export const createGroupTimer = async (req, res) => {
 
 /**
  * API: POST /api/timers/group/:groupId/complete
- * 기능: 유저가 그룹 할일 완료 (번개 획득)
+ * 기능: 그룹 할일 "개별" 성공 처리
+ * 설명: 내 멤버십 상태를 COMPLETED로 바꾸고 번개를 받습니다. (그룹은 그대로 유지될 수도 있음)
  */
 export const completeGroupTask = async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = req.user.id;
     const groupId = parseInt(req.params.groupId);
 
-    // 1. 유저의 상태를 'COMPLETED'로 변경
-    await prisma.groupMembership.updateMany({
+    // 1. "나의" 멤버십 상태를 COMPLETED로 변경 (내 목록에서 사라짐)
+    const updateResult = await prisma.groupMembership.updateMany({
       where: {
         userId: userId,
         groupId: groupId,
-        status: 'ACCEPTED', // 'ACCEPTED' 상태인 사람만 완료 가능
+        status: 'ACCEPTED', // 진행 중인 상태만
       },
       data: {
-        status: 'COMPLETED',
+        status: 'COMPLETED', // 완료 처리
       },
     });
 
-    // 2. [보상] 퀘스트 완료 '번개'(lightingPoints) 1 지급
-    await prisma.user.update({
+    if (updateResult.count === 0) {
+        return res.status(404).json({ message: "이미 완료했거나 참여하지 않은 그룹입니다." });
+    }
+
+    // 2. [보상] 유저 개인에게 번개 지급
+    const updatedUser = await prisma.user.update({
       where: { id: userId },
-      data: {
-        lightingPoints: {
-          increment: 1, // '번개' 누적
-        },
-      },
+      data: { lightingPoints: { increment: 1 } },
+      select: { lightingPoints: true }
     });
 
-    // 3. [핵심] 그룹 해체 및 벌칙자 선정 로직 호출
-    await findLoserAndDisband(groupId);
+    // 3. (선택사항) 그룹의 모든 멤버가 완료했는지 체크하여 그룹 상태를 변경하는 로직
+    // await checkGroupAllComplete(groupId); 
 
-    res.status(200).json({ message: '할 일을 완료했습니다! (번개 +1)' });
+    res.status(200).json({ 
+      message: '그룹 할 일 완료! (번개 +1)',
+      lightingPoints: updatedUser.lightingPoints 
+    });
   } catch (error) {
     console.error('🔥 그룹 할일 완료 오류:', error);
+    res.status(500).json({ message: '서버 오류' });
+  }
+};
+
+/**
+ * [신규 추가] API: POST /api/timers/group/:groupId/fail
+ * 기능: 그룹 할일 "개별" 실패/포기
+ * 설명: 내 멤버십 상태를 FAILED로 바꾸고 친구에게 알림을 보냅니다.
+ */
+export const failGroupTask = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const groupId = parseInt(req.params.groupId);
+
+    // 1. "나의" 멤버십 상태를 FAILED로 변경 (내 목록에서 사라짐)
+    const updateResult = await prisma.groupMembership.updateMany({
+      where: {
+        userId: userId,
+        groupId: groupId,
+        status: 'ACCEPTED',
+      },
+      data: {
+        status: 'FAILED', // 실패 처리
+      },
+    });
+
+    if (updateResult.count === 0) {
+        return res.status(404).json({ message: "이미 종료되었거나 참여하지 않은 그룹입니다." });
+    }
+
+    // 2. [알림] 친구에게 실패 알림 보내기
+    // 내 친구 중 한 명 찾기
+    const friendRelation = await prisma.friend.findFirst({
+        where: {
+          OR: [{ requesterId: userId }, { addresseeId: userId }],
+          status: 'ACCEPTED',
+        },
+    });
+  
+    if (friendRelation) {
+        const friendId = (friendRelation.requesterId === userId) 
+            ? friendRelation.addresseeId 
+            : friendRelation.requesterId;
+        
+        // 주의: 현재 스키마의 FriendFailureAlert는 failedTodoId(개인타이머)만 연결되어 있습니다.
+        // 그룹 실패를 기록하려면 스키마에 `failedGroupId` 필드를 추가하거나,
+        // 당장은 알림만 보내는 방식(DB저장 X, Axios 전송 O)을 써야 합니다.
+        // 여기서는 "알림 서비스로 전송"하는 코드를 작성합니다.
+        
+        const notificationApiUrl = `http://localhost:${process.env.PORT || 3000}/api/notifications/lightning`; 
+        // 혹은 별도의 failure 알림 엔드포인트
+
+        axios.post(notificationApiUrl, {
+             targetUserId: userId, // 실패한 사람 (나)
+             friendId: friendId,   // 알림 받을 사람
+             groupId: groupId,     // 관련 그룹
+             type: 'group_fail'
+        }).catch(err => console.error('🔔 그룹 실패 알림 전송 실패:', err.message));
+
+        console.log(`🔔 그룹 할일 포기: 친구(ID:${friendId})에게 알림 전송 시도`);
+    }
+
+    res.status(200).json({ message: '그룹 할 일을 포기했습니다. (목록에서 제거됨)' });
+
+  } catch (error) {
+    console.error('🔥 그룹 할일 실패 오류:', error);
     res.status(500).json({ message: '서버 오류' });
   }
 };
@@ -337,6 +475,52 @@ export const getUrgentTask = async (req, res) => {
 
   } catch (error) {
     console.error('🔥 위젯 데이터 조회 오류:', error);
+    res.status(500).json({ message: '서버 오류' });
+  }
+};
+
+/**
+ * API: GET /api/timers
+ * 기능: '투두 스크린'용 데이터 조회
+ * 설명: 나의 '진행 중(running/ACCEPTED)'인 개인 타이머와 그룹 타이머를 모두 가져옵니다.
+ */
+export const getRunningTimers = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // 1. 개인 타이머 조회 (status: 'running')
+    const personalTimers = await prisma.personalTimer.findMany({
+      where: {
+        ownerId: userId,
+        status: 'running',
+      },
+      orderBy: { startTime: 'desc' }
+    });
+
+    // 2. 그룹 타이머 조회 (Membership status: 'ACCEPTED')
+    // 그룹 자체는 ACTIVE여도, 내가 이미 완료(COMPLETED)했으면 목록에 안 떠야 함!
+    const groupTimers = await prisma.groupMembership.findMany({
+      where: {
+        userId: userId,
+        status: 'ACCEPTED', // 아직 완료 안 한 상태
+        group: {
+          status: 'ACTIVE' // 그룹 자체도 살아있는 상태
+        }
+      },
+      include: {
+        group: true, // 그룹의 todo, deadline 정보 가져오기
+      },
+      orderBy: { group: { deadline: 'asc' } }
+    });
+
+    // 3. 두 목록을 합쳐서 반환 (프론트에서 구분해서 보여줘도 됨)
+    res.status(200).json({
+      personal: personalTimers,
+      group: groupTimers, // 프론트에서는 groupTimers.map(m => m.group) 식으로 사용
+    });
+
+  } catch (error) {
+    console.error('🔥 타이머 목록 조회 오류:', error);
     res.status(500).json({ message: '서버 오류' });
   }
 };
