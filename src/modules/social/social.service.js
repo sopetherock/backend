@@ -65,6 +65,41 @@ export const listFriends = (userId) => {
     });
 };
 
+/**
+ * 유저의 친구 중 ACCEPTED 상태인 랜덤한 친구 1명의 ID를 찾습니다.
+ * @param {number} userId - 실패한 유저 ID
+ * @returns {Promise<number|null>} 랜덤 친구 ID 또는 친구가 없으면 null
+ */
+export const findRandomAcceptedFriendId = async (userId) => {
+    // 1. ACCEPTED 상태인 친구 관계 목록 조회
+    const friendships = await prisma.friend.findMany({
+        where: {
+            status: "ACCEPTED",
+            OR: [
+                { requesterId: userId },
+                { addresseeId: userId },
+            ],
+        },
+        select: {
+            requesterId: true,
+            addresseeId: true,
+        }
+    });
+
+    if (friendships.length === 0) {
+        return null;
+    }
+
+    // 2. 친구 ID 목록 추출
+    const friendIds = friendships.map(f => 
+        f.requesterId === userId ? f.addresseeId : f.requesterId
+    );
+
+    // 3. 랜덤 친구 선택
+    const randomIndex = Math.floor(Math.random() * friendIds.length);
+    return friendIds[randomIndex];
+};
+
 // ---------- 그룹 기능 ----------
 
 export const makeGroupWithFriends = async (

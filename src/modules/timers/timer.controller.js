@@ -229,17 +229,17 @@ async function findLoserAndDisband(groupId) {
     }
 
     // 6. [B] Timer -> Notifications (벌칙자 통보)
-    const notificationApiUrl = 'http://localhost:3000/api/notifications/penalty';
-    const penaltyBody = {
-      loserUserId: loser.userId,
-      groupId: loser.groupId,
-      strikeCount: loser.thunderCount,
-    };
+    // 알림 서비스 모듈을 가져옵니다. (순환 참조 방지)
+    const { notificationService } = await import('./notifications.service.js');
 
-    axios.post(notificationApiUrl, penaltyBody)
-      .catch((err) => {
-        console.error('🔥 벌칙 알림 전송 실패:', err.message);
-      });
+    // 벌칙을 내리는 주체를 '그룹 벌칙 시스템'으로 지정
+    await notificationService.sendStrikePenaltyAlert(
+        loser.userId, 
+        '그룹 벌칙 시스템' // 👈 벌칙을 내린 주체를 명확히 지정
+    )
+      .catch((err) => {
+        console.error('🔥 벌칙 알림 전송 실패:', err.message);
+      });
   } catch (error) {
     console.error('🔥 그룹 해체/벌칙자 선정 오류:', error);
   }
