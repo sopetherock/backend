@@ -7,6 +7,8 @@ import {
   acceptRequest,
   getFriendList,
   createGroup,
+  getIncomingRequests,
+  removeFriendRequest
 } from "./social.controller.js";
 
 const router = express.Router();
@@ -16,6 +18,8 @@ router.get("/search/:username", authMiddleware, searchUser);
 router.post("/add/:targetId", authMiddleware, sendRequest);
 router.post("/accept/:friendId", authMiddleware, acceptRequest);
 router.get("/friends", authMiddleware, getFriendList);
+router.get("/requests", authMiddleware, getIncomingRequests);
+router.delete("/request/:friendId", authMiddleware, removeFriendRequest);
 
 // ---- 그룹 기능 ----
 router.post("/groups", authMiddleware, createGroup);

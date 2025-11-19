@@ -4,6 +4,7 @@ CREATE TABLE "User" (
     "firebase_uid" TEXT NOT NULL,
     "email" TEXT NOT NULL,
     "username" TEXT NOT NULL,
+    "kakaoId" TEXT,
     "nickname" TEXT NOT NULL,
     "lightingPoints" INTEGER NOT NULL DEFAULT 0,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -94,6 +95,9 @@ CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "User_username_key" ON "User"("username");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "User_kakaoId_key" ON "User"("kakaoId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "PersonalTimer_todoId_key" ON "PersonalTimer"("todoId");

@@ -46,7 +46,8 @@ router.post('/register-db', async (req, res) => {
 
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ message: error.errors[0].message });
+      const firstError = error.errors?.length ? error.errors[0].message : "입력값 검증 오류";
+      return res.status(400).json({ message: firstError });
     }
     console.error('🔥 DB 등록 오류:', error);
     res.status(500).json({ message: '서버 오류가 발생했습니다.' });
@@ -64,7 +65,7 @@ router.get('/me', authMiddleware, (req, res) => {
   // 그냥 req.user를 반환합니다.
   res.status(200).json(req.user);
 });
-export default router;
+
 
 router.post("/kakao", async (req, res) => {
   try {
@@ -140,3 +141,5 @@ router.post("/kakao", async (req, res) => {
     res.status(500).json({ message: "카카오 로그인 실패" });
   }
 });
+
+export default router;

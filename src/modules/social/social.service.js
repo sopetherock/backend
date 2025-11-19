@@ -159,3 +159,24 @@ export const makeGroupWithFriends = async (
   // 컨트롤러에게 '그룹 정보'와 '실제로 초대된 유저 목록'을 반환
   return { group, invitedUsers: validInvitedIds };
 };
+
+// 받은 친구 요청 목록 조회
+export const listIncomingRequests = (userId) => {
+    return prisma.friend.findMany({
+        where: {
+        status: "PENDING",
+        addresseeId: userId,
+        },
+        include: {
+        requester: {
+            select: { id: true, username: true, nickname: true },
+        },
+        },
+    });
+};
+// 요청 삭제(거절)
+export const deleteFriendRequest = (friendId) => {
+    return prisma.friend.delete({
+        where: { id: friendId },
+    });
+};

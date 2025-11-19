@@ -5,6 +5,8 @@ import {
     approveFriend,
     listFriends,
     makeGroupWithFriends,
+    listIncomingRequests,
+    deleteFriendRequest,
 } from "./social.service.js";
 import axios from 'axios';
 
@@ -43,7 +45,7 @@ export const acceptRequest = async (req, res) => {
 
 export const getFriendList = async (req, res) => {
     try {
-        const userId = req.user.userId;
+        const userId = req.user.id;
         const friends = await listFriends(userId);
         res.json(friends);
     } catch (err) {
@@ -75,4 +77,27 @@ export const createGroup = async (req, res) => {
     console.error(err);
     res.status(500).json({ message: err.message });
   }
+};
+
+
+// 받은 친구 요청 조회
+export const getIncomingRequests = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const requests = await listIncomingRequests(userId);
+        res.json(requests);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+};
+
+// 친구 요청 삭제(거절)
+export const removeFriendRequest = async (req, res) => {
+    try {
+        const friendId = Number(req.params.friendId);
+        await deleteFriendRequest(friendId);
+        res.json({ message: "요청 삭제 완료" });
+    } catch (err) { 
+        res.status(500).json({ message: err.message });
+    }
 };
