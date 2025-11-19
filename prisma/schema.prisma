@@ -41,6 +41,7 @@ model User {
   firebaseUid String   @unique @map("firebase_uid")
   email     String   @unique
   username  String  @unique // 로그인 및 친구추가 시 사용될 ID 
+  kakaoId String? @unique
   //비밀번호는 firebase가 관리하므로 지움
   nickname  String 
   lightingPoints Int      @default(0)  // 번개 갯수 

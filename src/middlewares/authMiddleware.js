@@ -27,6 +27,16 @@ const authMiddleware = async (req, res, next) => {
     // 3. [Firebase] 프론트엔드가 보낸 ID Token을 Firebase 서버에 검증합니다.
     const decodedToken = await admin.auth().verifyIdToken(idToken);
 
+    // ---------------------------------------------------------
+    // 🚨 [추가된 부분] 이메일 인증 강제 로직
+    // ---------------------------------------------------------
+    if (!decodedToken.email_verified) {
+      return res.status(403).json({ 
+        code: 'EMAIL_NOT_VERIFIED', // 프론트엔드가 식별할 수 있는 에러 코드
+        message: '이메일 인증이 완료되지 않았습니다. 메일함을 확인해주세요.' 
+      });
+    }
+
     // 4. [Prisma] 검증된 토큰의 uid (Firebase 고유 ID)를 사용해
     //    우리 DB(Prisma)에서 유저를 조회합니다.
     const user = await prisma.user.findUnique({
@@ -49,9 +59,14 @@ const authMiddleware = async (req, res, next) => {
     next();
 
   } catch (error) {
-    // 토큰이 만료되었거나, 위조되었거나, 유효하지 않은 경우
     console.error('🔥 Firebase 토큰 검증 실패:', error);
-    res.status(403).json({ message: '인증에 실패했습니다. (Invalid Token)' });
+    
+    // 토큰 만료 등 구체적인 에러 처리
+    if (error.code === 'auth/id-token-expired') {
+      return res.status(401).json({ code: 'TOKEN_EXPIRED', message: '토큰이 만료되었습니다.' });
+    }
+    
+    res.status(403).json({ message: '인증에 실패했습니다.' });
   }
 };
 
