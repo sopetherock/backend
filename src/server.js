@@ -1,7 +1,12 @@
 // src/server.js
 import dotenv from "dotenv";
 import app from "./app.js";
+import cors from "cors";
 
+app.use(cors({
+  origin: "*",
+  methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
+}));
 dotenv.config();
 
 // [1. 방금 만든 크론 파일에서 스케줄러 시작 함수를 import] 
