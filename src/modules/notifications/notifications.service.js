@@ -90,6 +90,22 @@ export const notificationService = {
   },
 
   /**
+   * FCM 토큰을 유저 DB에 저장/업데이트
+   * @param {number} userId - 인증된 유저 ID
+   * @param {string} fcmToken - 클라이언트가 보낸 FCM 토큰
+   */
+  async saveFCMToken(userId, fcmToken) {
+    // 유저 ID를 기준으로 fcmToken 필드를 업데이트
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        fcmToken: fcmToken, // DB의 User 모델에 fcmToken 필드가 있다고 가정
+      },
+    });
+    console.log(`FCM Token for User ${userId} successfully updated.`);
+  },
+
+  /**
    * 벼락치기 실패 처리: 본인에게 알림, 친구에게 팝업 알림 전송
    * @param {number} failedUserId - 실패한 유저 ID
    * @param {number} failedTodoId - 실패한 Todo ID

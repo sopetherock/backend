@@ -27,6 +27,30 @@ export const notificationController = {
     }
   },
 
+  /**
+   * API: POST /api/notifications/fcm/token
+   * 기능: 클라이언트로부터 FCM 토큰을 받아 DB에 저장 (유저와 매핑)
+   */
+  saveFCMToken: async (req, res, next) => {
+    try {
+      // req.user.id는 authMiddleware에서 JWT(ID Token) 검증 후 넣어준 유저 ID
+      const userId = req.user.id; 
+      const { fcmToken } = req.body; 
+
+      if (!fcmToken) {
+        return res.status(400).json({ message: 'FCM 토큰이 누락되었습니다.' });
+      }
+
+      // 서비스 로직 호출
+      await notificationService.saveFCMToken(userId, fcmToken);
+
+      res.status(200).json({ message: 'FCM 토큰이 성공적으로 저장되었습니다.' });
+    } catch (error) {
+      console.error('🔥 FCM 토큰 저장 오류:', error);
+      next(error);
+    }
+  },
+
   // 벼락 알림 처리
   handleLightningStrike: async (req, res, next) => {
     try {
