@@ -1,0 +1,78 @@
+// src/modules/social/social.controller.js
+import {
+    findUserByUsername,
+    requestFriend,
+    approveFriend,
+    listFriends,
+    makeGroupWithFriends,
+} from "./social.service.js";
+import axios from 'axios';
+
+export const searchUser = async (req, res) => {
+    try {
+        const username = req.params.username;
+        const user = await findUserByUsername(username);
+        if (!user) return res.status(404).json({ message: "유저 없음" });
+        res.json(user);
+    } catch (err) {
+        res.status(500).json({ message: "검색 오류" });
+    }
+};
+
+export const sendRequest = async (req, res) => {
+    try {
+        const requesterId = req.user.id;
+        const targetId = Number(req.params.targetId);
+
+        const result = await requestFriend(requesterId, targetId);
+        res.json(result);
+    } catch (err) {
+        res.status(400).json({ message: err.message });
+    }
+};
+
+export const acceptRequest = async (req, res) => {
+    try {
+        const friendId = Number(req.params.friendId);
+        const result = await approveFriend(friendId);
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+};
+
+export const getFriendList = async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const friends = await listFriends(userId);
+        res.json(friends);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+};
+
+export const createGroup = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { deadline, invitedFriendIds } = req.body;
+
+        const {group, invitedUsers} = await makeGroupWithFriends(userId, deadline, invitedFriendIds);
+    // 2. [핵심] 알림(Notifications) 모듈에 "초대장 발송" 요청
+    // (검증된 친구들에게만 알림이 갑니다)
+        if (invitedUsers.length > 0) {
+            const notificationApiUrl = `http://localhost:3000/api/notifications/invite`;
+      
+            // 비동기로 요청 (응답 안 기다림)
+            axios.post(notificationApiUrl, {
+                groupId: group.id,
+                inviterName: req.user.nickname, // (JWT payload에 닉네임이 있다면)
+                invitedUserIds: invitedUsers,
+      }).catch(err => console.error("🔥 알림 전송 실패:", err.message));
+    }
+
+    res.json(group);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: err.message });
+  }
+};

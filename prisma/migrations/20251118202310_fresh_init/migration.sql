@@ -1,4 +1,17 @@
 -- CreateTable
+CREATE TABLE "User" (
+    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    "firebase_uid" TEXT NOT NULL,
+    "email" TEXT NOT NULL,
+    "username" TEXT NOT NULL,
+    "nickname" TEXT NOT NULL,
+    "lightingPoints" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "level" INTEGER NOT NULL DEFAULT 1,
+    "fcmToken" TEXT
+);
+
+-- CreateTable
 CREATE TABLE "Todo" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
     "title" TEXT NOT NULL,
@@ -40,11 +53,11 @@ CREATE TABLE "GroupMembership" (
 -- CreateTable
 CREATE TABLE "Friend" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    "userAId" INTEGER NOT NULL,
-    "userBId" INTEGER NOT NULL,
+    "requesterId" INTEGER NOT NULL,
+    "addresseeId" INTEGER NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'PENDING',
-    CONSTRAINT "Friend_userAId_fkey" FOREIGN KEY ("userAId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT "Friend_userBId_fkey" FOREIGN KEY ("userBId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+    CONSTRAINT "Friend_requesterId_fkey" FOREIGN KEY ("requesterId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "Friend_addresseeId_fkey" FOREIGN KEY ("addresseeId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
 -- CreateTable
@@ -65,7 +78,7 @@ CREATE TABLE "FriendFailureAlert" (
     "failedUserId" INTEGER NOT NULL,
     "notifiedFriendId" INTEGER NOT NULL,
     "failedTodoId" INTEGER NOT NULL,
-    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "status" TEXT NOT NULL DEFAULT 'SENT',
     "actionTaken" TEXT,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "FriendFailureAlert_failedUserId_fkey" FOREIGN KEY ("failedUserId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
@@ -73,27 +86,14 @@ CREATE TABLE "FriendFailureAlert" (
     CONSTRAINT "FriendFailureAlert_failedTodoId_fkey" FOREIGN KEY ("failedTodoId") REFERENCES "Todo" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
--- RedefineTables
-PRAGMA defer_foreign_keys=ON;
-PRAGMA foreign_keys=OFF;
-CREATE TABLE "new_User" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    "email" TEXT NOT NULL,
-    "username" TEXT NOT NULL,
-    "passwordHash" TEXT NOT NULL,
-    "nickname" TEXT NOT NULL,
-    "lightingPoints" INTEGER NOT NULL DEFAULT 0,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "level" INTEGER NOT NULL DEFAULT 1,
-    "fcmToken" TEXT
-);
-INSERT INTO "new_User" ("createdAt", "email", "id", "lightingPoints", "nickname", "passwordHash", "username") SELECT "createdAt", "email", "id", "lightingPoints", "nickname", "passwordHash", "username" FROM "User";
-DROP TABLE "User";
-ALTER TABLE "new_User" RENAME TO "User";
+-- CreateIndex
+CREATE UNIQUE INDEX "User_firebase_uid_key" ON "User"("firebase_uid");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "User_username_key" ON "User"("username");
-PRAGMA foreign_keys=ON;
-PRAGMA defer_foreign_keys=OFF;
 
 -- CreateIndex
 CREATE UNIQUE INDEX "PersonalTimer_todoId_key" ON "PersonalTimer"("todoId");
@@ -102,7 +102,7 @@ CREATE UNIQUE INDEX "PersonalTimer_todoId_key" ON "PersonalTimer"("todoId");
 CREATE UNIQUE INDEX "GroupMembership_userId_groupId_key" ON "GroupMembership"("userId", "groupId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Friend_userAId_userBId_key" ON "Friend"("userAId", "userBId");
+CREATE UNIQUE INDEX "Friend_requesterId_addresseeId_key" ON "Friend"("requesterId", "addresseeId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "FriendFailureAlert_failedTodoId_key" ON "FriendFailureAlert"("failedTodoId");

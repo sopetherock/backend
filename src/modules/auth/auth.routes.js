@@ -62,6 +62,4 @@ router.get('/me', authMiddleware, (req, res) => {
   // 그냥 req.user를 반환합니다.
   res.status(200).json(req.user);
 });
-
-
 export default router;

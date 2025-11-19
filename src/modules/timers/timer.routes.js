@@ -3,12 +3,12 @@ import express from "express";
 import authMiddleware from '../../middlewares/authMiddleware.js'; // 유저 인증
 import {
   createPersonalTimer,
-  createGroupTimer,
-  acceptGroupInvite,
+  createGroupTimer,  // [수정됨] Social 모듈을 이용해 그룹 생성
   completeGroupTask,
   addStrike,
   getUrgentTask,
 } from './timer.controller.js'; // 1. 컨트롤러 함수들 import
+
 const router = express.Router();
 
 router.get("/", (req, res) => {
@@ -18,11 +18,8 @@ router.get("/", (req, res) => {
 // 기능 1: 개인 할일 및 타이머 생성
 router.post('/personal', authMiddleware, createPersonalTimer);
 
-// 기능 2: 그룹 타이머 생성 및 초대
+// 기능 2: 그룹 타이머 생성 (Social 모듈 연동 + 초대 알림)
 router.post('/group', authMiddleware, createGroupTimer);
-
-// 기능 2: 그룹 초대 수락
-router.post('/group/:groupId/accept', authMiddleware, acceptGroupInvite);
 
 // 기능 2: 그룹 할일 완료 (번개 획득, 그룹 해체 로직 트리거)
 router.post('/group/:groupId/complete', authMiddleware, completeGroupTask);
