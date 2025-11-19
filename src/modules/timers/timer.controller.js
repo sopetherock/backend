@@ -39,6 +39,57 @@ export const createPersonalTimer = async (req, res) => {
   }
 };
 
+/**
+ * [신규 추가] API: POST /api/timers/personal/:todoId/complete
+ * 기능: 개인 할일 완료 처리 및 번개 지급
+ */
+export const completePersonalTask = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const todoId = parseInt(req.params.todoId);
+
+    // 1. 할 일 상태 업데이트 ('PENDING' -> 'COMPLETED')
+    const result = await prisma.todo.updateMany({
+      where: {
+        id: todoId,
+        ownerId: userId,     // 내 할 일만 완료 가능
+        status: 'PENDING',   // 아직 완료 안 된 것만
+      },
+      data: {
+        status: 'COMPLETED',
+      },
+    });
+
+    // 업데이트된 행이 없으면 실패 처리
+    if (result.count === 0) {
+      return res.status(404).json({ message: '할 일을 찾을 수 없거나 이미 완료되었습니다.' });
+    }
+
+    // 2. [보상] 유저에게 번개(Lightning) +1 지급
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        lightingPoints: {
+          increment: 1,
+        },
+      },
+      select: {
+        id: true,
+        lightingPoints: true,
+      },
+    });
+
+    res.status(200).json({ 
+      message: '개인 할 일을 완료했습니다! (번개 +1)',
+      lightingPoints: updatedUser.lightingPoints 
+    });
+
+  } catch (error) {
+    console.error('🔥 개인 할일 완료 오류:', error);
+    res.status(500).json({ message: '서버 오류' });
+  }
+};
+
 
 // --- 기능 2: 그룹 타이머 (Social 연동 + 알림 발송) ---
 
