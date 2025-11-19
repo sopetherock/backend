@@ -142,4 +142,19 @@ router.post("/kakao", async (req, res) => {
   }
 });
 
+router.get('/check-username/:username', async (req, res) => {
+  try {
+    const username = req.params.username;
+
+    const exists = await prisma.user.findUnique({
+      where: { username },
+    });
+
+    res.json({ available: !exists });
+  } catch (e) {
+    res.status(500).json({ message: "서버 오류" });
+  }
+});
+
+
 export default router;
