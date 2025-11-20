@@ -73,7 +73,7 @@ export const completePersonalTimer = async (req, res) => {
 
     // 2. URL 파라미터에서 timerId 가져오기
     // 주의: req.params.timerId는 문자열(String)이므로 정수(Int)로 변환해야 합니다.
-    const { timerId } = req.params;
+    const { todoId } = req.params;
     const timerIdInt = parseInt(timerId, 10);
 
     if (!timerId || isNaN(timerIdInt)) {
