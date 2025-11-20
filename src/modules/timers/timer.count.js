@@ -59,9 +59,9 @@ const runTodoFailureDetection = async () => {
         // 조건: 
         // a) status: 'pending' (아직 완료/실패 처리 안 됨)
         // b) deadline: 현재 시간보다 작음 (마감 기한이 지남)
-        const failedTodos = await prisma.todo.findMany({
+        const failedTodos = await prisma.personalTimer.findMany({
             where: {
-                status: 'pending',
+                status: 'running',
                 deadline: {
                     lt: now, // 마감 기한이 현재 시간보다 작음
                 },
@@ -84,7 +84,7 @@ const runTodoFailureDetection = async () => {
         // 2. 실패 처리 및 알림 발송
         for (const todo of failedTodos) {
             // A. Todo 상태를 'failed'로 업데이트
-            await prisma.todo.update({
+            await prisma.personalTimer.update({
                 where: { id: todo.id },
                 data: { status: 'failed' },
             });

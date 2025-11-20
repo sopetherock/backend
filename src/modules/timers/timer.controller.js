@@ -10,59 +10,98 @@ import { makeGroupWithFriends } from '../social/social.service.js';
  * 기능: 개인 할일 생성 (타이머 시작)
  * 설명: 유저가 입력한 'todo'(할일 내용)와 'duration'을 PersonalTimer에 저장
  */
+// src/modules/timers/timer.controller.js
+
 export const createPersonalTimer = async (req, res) => {
   try {
-    // 프론트에서 { todo: "수학 3단원 벼락치기", duration: 1800 } 이렇게 보냄
-    const { todo, duration } = req.body; 
-    const userId = req.user.id; // authMiddleware 통과한 유저 ID
+    // [디버깅] req.user가 제대로 들어왔는지 확인
+    console.log("🔍 요청한 유저 정보:", req.user);
+    const userId = req.user?.userId || req.user?.id; // authMiddleware가 토큰에서 추출한 ID
+    
+    if (!userId) {
+      return res.status(401).json({ message: '유저 식별 실패. 재로그인이 필요합니다.' });
+    }
+    // [수정] 프론트에서 deadline을 받음 (duration 아님)
+    const { todo, deadline } = req.body; 
 
-    // PersonalTimer 모델에 바로 저장
+    if (!todo || !deadline) {
+      return res.status(400).json({ message: '할 일과 마감 시간을 모두 입력해주세요.' });
+    }
+
+    // [핵심] Deadline(마감시간) - Now(현재시간) = Duration(초) 계산
+    const now = new Date();
+    const targetDate = new Date(deadline);
+    
+    // 밀리초 단위 차이를 1000으로 나눠서 '초(Seconds)' 단위로 변환
+    const durationSeconds = Math.floor((targetDate.getTime() - now.getTime()) / 1000);
+
+    // (혹시 모르니 예외 처리) 이미 지난 시간이라면?
+    if (durationSeconds <= 0) {
+       return res.status(400).json({ message: '마감 시간은 현재 시간보다 미래여야 합니다.' });
+    }
+
+    // DB에 저장 (DB는 여전히 duration을 원하므로 계산된 값을 넣어줌)
     const newTimer = await prisma.personalTimer.create({
       data: {
-        todo: todo,         // 스키마의 todo 필드에 바로 저장
-        duration: duration, // 스키마의 duration 필드에 바로 저장
-        ownerId: userId,    // owner 연결
-        // startTime은 default(now())라 자동 생성
-        // status는 default("running")이라 자동 생성
+        todo: todo,
+        ownerId: userId,
+        duration: durationSeconds, // 👈 계산된 초 단위 시간 저장
+        // startTime은 DB에서 @default(now())로 자동 생성됨
+        status: 'running'
       },
     });
 
     res.status(201).json(newTimer);
+
   } catch (error) {
     console.error('🔥 개인 타이머 생성 오류:', error);
-    res.status(500).json({ message: '서버 오류' });
+    // Prisma 에러 로그를 자세히 보기 위해 error 객체 전체 출력
+    res.status(500).json({ message: '서버 오류', error: error.message });
   }
 };
-
 /**
  * API: POST /api/timers/personal/:timerId/complete
  * 기능: 개인 할일 완료 처리 및 번개 지급
  */
 export const completePersonalTimer = async (req, res) => {
   try {
-    const userId = req.user.userId;
-    const timerId = parseInt(req.params.timerId);
+    // 1. 유저 ID 가져오기 (안전하게)
+    const userId = req.user?.userId || req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ message: '유저 인증 정보가 없습니다.' });
+    }
 
-    // 1. 내 타이머 중 'running'인 것을 찾아 'success'로 업데이트
-    const updatedTimer = await prisma.personalTimer.updateMany({
+    // 2. URL 파라미터에서 timerId 가져오기
+    // 주의: req.params.timerId는 문자열(String)이므로 정수(Int)로 변환해야 합니다.
+    const { timerId } = req.params;
+    const timerIdInt = parseInt(timerId, 10);
+
+    if (!timerId || isNaN(timerIdInt)) {
+      return res.status(400).json({ message: '유효하지 않은 타이머 ID입니다.' });
+    }
+
+    console.log(`🏁 타이머 완료 요청: User ${userId}, Timer ${timerIdInt}`);
+
+    // 3. DB 업데이트
+    // updateMany를 쓰는 이유: ID와 OwnerId를 동시에 체크해서 "내 타이머"인지 확인하기 위함
+    const result = await prisma.personalTimer.updateMany({
       where: {
-        id: timerId,
-        ownerId: userId,
-        status: 'running', // 진행 중인 것만 완료 가능
+        id: timerIdInt,      // [수정] Int로 변환된 ID 사용
+        ownerId: userId,     // [수정] undefined 방지
+        status: 'running',   // 진행 중인 것만 완료 가능
       },
       data: {
-        status: 'success', // 완료 상태 (목록에서 제외됨)
-        endTime: new Date(), // 끝난 시간 기록
+        status: 'success',
+        endTime: new Date(),
       },
     });
 
-    // 업데이트된 갯수가 0이면 예외 처리
-    if (updatedTimer.count === 0) {
-      return res.status(404).json({ message: '이미 끝났거나 존재하지 않는 타이머입니다.' });
+    if (result.count === 0) {
+      return res.status(404).json({ message: '타이머를 찾을 수 없거나 이미 종료되었습니다.' });
     }
 
-    // 2. [보상] 번개 포인트 +1 지급
-    const user = await prisma.user.update({
+    // 4. 번개 포인트 지급
+    const updatedUser = await prisma.user.update({
       where: { id: userId },
       data: {
         lightingPoints: { increment: 1 },
@@ -71,13 +110,13 @@ export const completePersonalTimer = async (req, res) => {
     });
 
     res.status(200).json({
-      message: '타이머 성공! (번개 +1)',
-      lightingPoints: user.lightingPoints,
+      message: '타이머 완료 성공!',
+      lightingPoints: updatedUser.lightingPoints,
     });
 
   } catch (error) {
     console.error('🔥 개인 타이머 완료 오류:', error);
-    res.status(500).json({ message: '서버 오류' });
+    res.status(500).json({ message: '서버 오류', error: error.message });
   }
 };
 

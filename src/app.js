@@ -15,7 +15,7 @@ app.use(express.json());
 // ✅ 공통 라우터 연결
 app.use("/api/auth", authRouter);
 app.use("/api/social", socialRouter);
-app.use("/api/timer", timerRouter);
+app.use("/api/timers", timerRouter);
 app.use("/api/notifications", notificationRouter);
 app.use('/api/quests', questRouter);
 

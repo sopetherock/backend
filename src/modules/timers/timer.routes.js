@@ -22,9 +22,9 @@ router.get("/", (req, res) => {
 // 기능 1: 개인 할일 및 타이머 생성
 router.post('/personal', authMiddleware, createPersonalTimer);
 
-router.post('/personal/:todoId/complete', authMiddleware, completePersonalTimer);
+router.post('/personal/:timerId/complete', authMiddleware, completePersonalTimer);
 
-router.post('/personal/:todoId/fail', authMiddleware, failPersonalTimer);
+router.post('/personal/:timerId/fail', authMiddleware, failPersonalTimer);
 
 // 기능 2: 그룹 타이머 생성 (Social 모듈 연동 + 초대 알림)
 router.post('/group', authMiddleware, createGroupTimer);

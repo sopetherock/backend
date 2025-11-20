@@ -1,161 +1,138 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 datasource db {
   provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
-// sqlite : 별도 설치 없이 프로제긑 안에 있는 간단한 파일을 DB로 사용 
-//          로컬 개발 환경에 적합 / 개발 연습용  
-// postgresql : 실제 서비스 배포할 때 씀 (여러명이 서버에 동시접속 ㄱㄴ)
-//              sqlite로 개발 하고 배포 시 이걸로만 바꿔주면 됨 
-
-
-
-
 generator client {
   provider = "prisma-client-js"
 }
 
-// generator : 이 스키마 (데이터 베이스의 설계도) 를 바탕으로 JS에서 쓸 수 있는 DB를 만들어줘! 
-
+// --- Enums ---
 enum AlertStatusType {
-  SENT      // 알림이 친구에게 성공적으로 발송되었으나, 친구의 행동을 기다리는 상태
-  PROCESSED // 친구가 '벼락 치기'나 '다음에 하기' 중 하나를 선택하여 처리가 완료된 상태
+  SENT
+  PROCESSED
 }
 
 enum ActionTakenType {
-  STRIKE  // 친구가 벼락을 선택 (벌칙 집행)
-  LATER   // 친구가 다음에 하기를 선택 (아무 일 없음)
+  STRIKE
+  LATER
 }
 
+// --- User ---
 model User {
-  id        Int      @id @default(autoincrement())
-  // @id : DB가 유저 구분을 위해 쓰는 고유한 식별자 ( 학번 같은 거 )
-  // 로그인 및 친구 추가 시 쓰는 ID가 아니다. 
+  id             Int      @id @default(autoincrement())
+  firebaseUid    String   @unique @map("firebase_uid")
+  email          String   @unique
+  username       String   @unique
+  nickname       String   
+  lightingPoints Int      @default(0) 
+  createdAt      DateTime @default(now())
+  level          Int      @default(1)
+  fcmToken       String?
 
-  firebaseUid String   @unique @map("firebase_uid")
-  email     String   @unique
-  username  String  @unique // 로그인 및 친구추가 시 사용될 ID 
-  
-  //비밀번호는 firebase가 관리하므로 지움
-  nickname  String 
-  lightingPoints Int      @default(0)  // 번개 갯수 
-  createdAt DateTime @default(now())  // 가입 날짜
-  level     Int      @default(1) // 유저의 현재 레벨
-  fcmToken String? // 푸시 알림을 위한 FCM 토큰
+  // 1. 타이머 관계 (Todo -> PersonalTimer 통합)
+  personalTimers PersonalTimer[]
 
-  // 유저가 속한 그룹 목록 (M-N 관계)
+  // 2. 그룹 관계
   groupMemberships GroupMembership[]
-  // 유저가 생성한 개인 할일 목록 (1-N 관계)s
-  todos            Todo[]
+
+  // 3. 친구 관계
   requestedFriends Friend[] @relation("RequesterRelation")
   receivedFriends  Friend[] @relation("AddresseeRelation")
+  
+  // 4. 알림 관계 (에러 발생했던 부분 해결)
+  notifications    Notification[]
 
-  // 알림 목록 (내가 받은 알림)
-  notifications Notification[]
-
-  // 친구 실패 알림 (내가 보낸, 내가 받은)
+  // 5. 실패 알림 관계
   failureAlertsSent     FriendFailureAlert[] @relation("FailedUser")
   failureAlertsReceived FriendFailureAlert[] @relation("NotifiedFriend")
 }
-// User에 대한 스키마 
 
-// 개인 할일 (Todo)
-// "지금 할 일" + "타이머" 통합 모델
+// --- PersonalTimer (구 Todo) ---
 model PersonalTimer {
   id        Int      @id @default(autoincrement())
-  todo     String   // 예: "수학 3단원 벼락치기"
+  
+  // 할일 내용 (단순 문자열)
+  todo      String   
+  
+  duration  Int      
+  startTime DateTime @default(now())
+  endTime   DateTime?
+  status    String   @default("running") 
+  
+  // User와의 관계
   owner     User     @relation(fields: [ownerId], references: [id])
   ownerId   Int
   
-  duration Int     // 목표 시간 (초 단위)
-  startTime  DateTime @default(now()) // 생성되자마자 시작 (벼락치기니까!)
-  endTime    DateTime? // 종료 시간
-  
-  // 상태: 진행중(running) -> 성공(success) / 실패(fail)
-  status     String   @default("running") 
-  
-  // 실패했을 경우 생성될 알림 (1:1 관계)
+  // 실패 알림 연결
   failureAlert FriendFailureAlert?
 }
 
-// 그룹 (그룹 타이머 역할)
+// --- FriendFailureAlert ---
+model FriendFailureAlert {
+  id                 Int      @id @default(autoincrement())
+  
+  failedUser         User     @relation("FailedUser", fields: [failedUserId], references: [id])
+  failedUserId       Int
+  
+  notifiedFriend     User     @relation("NotifiedFriend", fields: [notifiedFriendId], references: [id])
+  notifiedFriendId   Int
+  
+  // PersonalTimer와 연결
+  failedTimer        PersonalTimer @relation(fields: [failedTimerId], references: [id])
+  failedTimerId      Int           @unique 
+
+  status             AlertStatusType    @default(SENT)
+  actionTaken        ActionTakenType?
+  createdAt          DateTime @default(now())
+}
+
+// --- Group ---
 model Group {
-  id        Int      @id @default(autoincrement())
-  todo     String
-  deadline  DateTime // 그룹 타이머의 마감 시간
-  status    String   @default("ACTIVE") // "ACTIVE", "COMPLETED"
-  
-  // 벼락 발생 시간을 수동으로 업데이트
+  id           Int      @id @default(autoincrement())
+  todo         String?   // 그룹 할일
+  deadline     DateTime
+  status       String   @default("ACTIVE")
   lastStrikeAt DateTime @default(now())
-  
-  // 그룹에 속한 멤버 목록 (1-N 관계)
-  members   GroupMembership[]
+  members      GroupMembership[]
 }
 
-// 그룹 멤버 정보 (User와 Group의 연결 테이블)
 model GroupMembership {
-  id        Int      @id @default(autoincrement())
+  id           Int      @id @default(autoincrement())
+  user         User     @relation(fields: [userId], references: [id])
+  userId       Int
+  group        Group    @relation(fields: [groupId], references: [id])
+  groupId      Int
+  thunderCount Int      @default(0)
+  status       String   @default("INVITED")
   
-  user      User     @relation(fields: [userId], references: [id])
-  userId    Int
-  group     Group    @relation(fields: [groupId], references: [id])
-  groupId   Int
-  
-  // 벼락 누적 횟수
-  thunderCount Int    @default(0)
-  
-  status    String   @default("INVITED") // "INVITED", "ACCEPTED", "COMPLETED"
-  // 이 멤버십 활동에서 발생한 실패 알림 (1:1 관계)
-  failureAlert FriendFailureAlert?
-  
-  @@unique([userId, groupId]) // 한 유저가 한 그룹에 중복 참여 방지
+  @@unique([userId, groupId])
 }
 
+// --- Friend ---
 model Friend {
-  id        Int      @id @default(autoincrement())
+  id          Int    @id @default(autoincrement())
   requesterId Int
   addresseeId Int
-  status    String   @default("PENDING") // PENDING | ACCEPTED
+  status      String @default("PENDING")
 
   requester User @relation("RequesterRelation", fields: [requesterId], references: [id])
   addressee User @relation("AddresseeRelation", fields: [addresseeId], references: [id])
 
-  @@unique([requesterId, addresseeId]) // 중복 요청 방지
+  @@unique([requesterId, addresseeId])
 }
 
-// 알림 로그
+// --- Notification (에러 해결 핵심) ---
 model Notification {
   id        Int      @id @default(autoincrement())
+  
+  // [중요] User 모델의 notifications[] 와 짝이 되는 부분입니다.
   user      User     @relation(fields: [userId], references: [id])
-  userId    Int      // 알림을 받은 유저
-  type      String   // "group_invite", "lightning_strike", "task_due", "task_failed"
+  userId    Int      
+  
+  type      String   
   message   String
   isRead    Boolean  @default(false)
-  relatedId Int?     // 알림 클릭 시 이동할 ID (예: groupId, todoId)
+  relatedId Int?     
   createdAt DateTime @default(now())
-}
-
-// 친구 실패 알림 (친구 실패 알림 팝업용)
-model FriendFailureAlert {
-  id               Int      @id @default(autoincrement())
-  
-  failedUser       User     @relation("FailedUser", fields: [failedUserId], references: [id])
-  failedUserId     Int      // 벼락치기 실패한 유저
-  
-  notifiedFriend   User     @relation("NotifiedFriend", fields: [notifiedFriendId], references: [id])
-  notifiedFriendId Int      // 알림(팝업)을 받은 친구
-  
-  failedTodo       Todo     @relation(fields: [failedTodoId], references: [id])
-  failedTodoId     Int      @unique // 실패한 '할일' 1개당 알림 1개
-  
-  status           AlertStatusType    @default(SENT) // (SENT, PROCESSED)
-  actionTaken      ActionTakenType?  // (STRIKE, LATER). null = NONE (아직 선택 안 함)
-  
-  createdAt        DateTime @default(now())
 }
