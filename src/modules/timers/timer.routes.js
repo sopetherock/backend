@@ -10,14 +10,15 @@ import {
   addStrike,
   getUrgentTask,
   failGroupTask,
-  getRunningTimers
+  getRunningTimers,
+  acceptGroupInvite,
+  declineGroupInvite
 } from './timer.controller.js'; // 1. 컨트롤러 함수들 import
 
 const router = express.Router();
 
-router.get("/", (req, res) => {
-  res.json({ message: "✅ Timer route 연결 성공!" });
-});
+// 진행 중인 개인/그룹 타이머 목록 (투두 화면)
+router.get('/', authMiddleware, getRunningTimers);
 
 // 기능 1: 개인 할일 및 타이머 생성
 router.post('/personal', authMiddleware, createPersonalTimer);
@@ -28,6 +29,10 @@ router.post('/personal/:timerId/fail', authMiddleware, failPersonalTimer);
 
 // 기능 2: 그룹 타이머 생성 (Social 모듈 연동 + 초대 알림)
 router.post('/group', authMiddleware, createGroupTimer);
+
+// 그룹 초대 수락/거절
+router.post('/group/:groupId/accept', authMiddleware, acceptGroupInvite);
+router.post('/group/:groupId/decline', authMiddleware, declineGroupInvite);
 
 // 그룹 할일 포기 (친구 알림) - 👈 [추가된 부분]
 router.post('/group/:groupId/fail', authMiddleware, failGroupTask);

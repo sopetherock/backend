@@ -1,7 +1,8 @@
 //src/modules/timers/timer.count.js
 import cron from 'node-cron';
 import prisma from '../../config/db.js'; // (prisma 경로 확인)
-import axios from 'axios';
+import { notificationService } from '../notifications/notifications.service.js';
+import { applyAutoStrike } from './timer.controller.js';
 
 //40분마다 자동 벼락을 실행하는 스케줄러 함수
 const runAutoStrikeScheduler = async () => {
@@ -31,15 +32,10 @@ const runAutoStrikeScheduler = async () => {
                 where: { id: group.id },
                 data: { lastStrikeAt: new Date() },
             });
-            // 2-2. [Timer -> Notifications]
-            // "알아서 벼락 내려"라고 Notifications 모듈에 트리거 전송
-            const strikeTriggerApi = `http://localhost:${process.env.PORT || 3000}/api/notifications/trigger-auto-strike`;
-  
-            axios.post(strikeTriggerApi, { groupId: group.id })
-                .catch(err => {
-                    // 알림 전송 실패는 별도로 로깅
-                    console.error(`${taskName} 그룹 ${group.id} 알림 전송 실패:`, err.message);
-                });
+            // 2-2. 자동 벼락 적용 (HTTP 자기호출 대신 서비스 함수 직접 호출)
+            await applyAutoStrike(group.id).catch(err => {
+                console.error(`${taskName} 그룹 ${group.id} 자동 벼락 실패:`, err.message);
+            });
         }
     } catch (error) {
         console.error(`🔥 ${taskName} 스케줄러 오류:`, error);
@@ -52,50 +48,36 @@ const runAutoStrikeScheduler = async () => {
 const runTodoFailureDetection = async () => {
     const taskName = '[Cron Job - Todo 실패 감지]';
     console.log(`${taskName} 작업 탐색 시작...`);
-    const now = new Date();
+    const now = Date.now();
 
     try {
-        // 1. 실패한 개인 할일 목록 조회
-        // 조건: 
-        // a) status: 'pending' (아직 완료/실패 처리 안 됨)
-        // b) deadline: 현재 시간보다 작음 (마감 기한이 지남)
-        const failedTodos = await prisma.personalTimer.findMany({
-            where: {
-                status: 'running',
-                deadline: {
-                    lt: now, // 마감 기한이 현재 시간보다 작음
-                },
-                // PersonalTimer가 있는 경우에만 실패로 처리하도록 필터링 (선택 사항)
-                // 현재 스키마에서는 모든 Todo에 deadline이 있으므로, deadline만으로 충분함.
-            },
-            select: {
-                id: true,
-                ownerId: true,
-            },
+        // PersonalTimer에는 deadline 컬럼이 없으므로 startTime + duration(초)으로 마감 시각을 계산한다.
+        const runningTimers = await prisma.personalTimer.findMany({
+            where: { status: 'running' },
+            select: { id: true, ownerId: true, startTime: true, duration: true },
         });
+        const failedTimers = runningTimers.filter(
+            (t) => t.startTime.getTime() + t.duration * 1000 < now
+        );
 
-        if (!failedTodos || failedTodos.length === 0) {
+        if (failedTimers.length === 0) {
             console.log(`${taskName} 대상 할일 없음.`);
             return;
         }
 
-        console.log(`${taskName} ${failedTodos.length}개 할일 실패 처리 시작.`);
+        console.log(`${taskName} ${failedTimers.length}개 할일 실패 처리 시작.`);
 
-        // 2. 실패 처리 및 알림 발송
-        for (const todo of failedTodos) {
-            // A. Todo 상태를 'failed'로 업데이트
-            await prisma.personalTimer.update({
-                where: { id: todo.id },
-                data: { status: 'failed' },
+        for (const timer of failedTimers) {
+            // 사용자가 동시에 완료/실패 처리했을 수 있으므로 running 일 때만 변경
+            const result = await prisma.personalTimer.updateMany({
+                where: { id: timer.id, status: 'running' },
+                data: { status: 'fail', endTime: new Date() },
             });
+            if (result.count === 0) continue;
 
-            // B. 알림 모듈에 실패 통보 및 친구 알림 요청 (Service 직접 호출)
-            // Notifications Service를 비동기로 가져와 순환 참조를 피함
-            const notificationService = (await import('./../notifications/notifications.service.js')).notificationService; 
-            
-            await notificationService.sendFailureAlerts(todo.ownerId, todo.id)
+            await notificationService.sendFailureAlerts(timer.ownerId, timer.id)
                 .catch(err => {
-                    console.error(`${taskName} Todo ${todo.id} 알림 전송 실패:`, err.message);
+                    console.error(`${taskName} Timer ${timer.id} 알림 전송 실패:`, err.message);
                 });
         }
 

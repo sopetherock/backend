@@ -3,6 +3,7 @@
 // 요청이 들어오면 데이터를 검사하고, service의 함수를 호출
 import { notificationService } from './notifications.service.js';
 import prisma from '../../config/db.js'; // alert 조회용
+import { applyAutoStrike } from '../timers/timer.controller.js';
 
 export const notificationController = {
   testApi: (req, res, next) => {
@@ -106,16 +107,8 @@ export const notificationController = {
         throw new Error('groupId가 누락되었습니다.');
       }
 
-      // 1. Timer 모듈의 벼락 누적 API 호출
-      //    -> 이 API는 완료 안 한 멤버 중 랜덤 1명을 뽑아 /api/timers/strike 를 호출해야 함.
-      const timerApiUrl = `http://localhost:3000/api/timers/process-auto-strike`; 
-      
-      // 이 로직은 Notification이 아닌 Timer 모듈의 책임이므로, Timer 모듈로 다시 요청을 전달합니다.
-      // (혹은 Notification Service에 로직을 추가하고 Timer API를 호출하지 않을 수도 있지만, 
-      //  Timer 모듈이 그룹 멤버십/로직을 잘 알고 있으므로 Timer 모듈에 위임하는 것이 좋습니다.)
-      
-      // *주의: Timer 모듈에 '/process-auto-strike' API를 먼저 구현해야 합니다.*
-      await axios.post(timerApiUrl, { groupId: groupId }); 
+      // Timer 모듈의 서비스 함수를 직접 호출 (완료 안 한 멤버 중 랜덤 1명에게 벼락 +1)
+      await applyAutoStrike(groupId);
 
       res.status(200).json({ message: '자동 벼락 처리 위임 완료' });
     } catch (error) {

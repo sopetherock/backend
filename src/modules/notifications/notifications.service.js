@@ -92,9 +92,9 @@ export const notificationService = {
   /**
    * 벼락치기 실패 처리: 본인에게 알림, 친구에게 팝업 알림 전송
    * @param {number} failedUserId - 실패한 유저 ID
-   * @param {number} failedTodoId - 실패한 Todo ID
+   * @param {number} failedTimerId - 실패한 Todo ID
    */
-  async sendFailureAlerts(failedUserId, failedTodoId) {
+  async sendFailureAlerts(failedUserId, failedTimerId) {
     
     // 1. 실패한 유저 본인에게 알림 (요청 1번)
     const user = await prisma.user.findUnique({
@@ -111,7 +111,7 @@ export const notificationService = {
         userId: failedUserId,
         type: 'task_failed',
         message: selfMessage,
-        relatedId: failedTodoId,
+        relatedId: failedTimerId,
       }
     });
 
@@ -121,7 +121,7 @@ export const notificationService = {
         user.fcmToken,
         '벼락치기 실패 ⚡',
         selfMessage,
-        { type: 'task_failed', todoId: String(failedTodoId) }
+        { type: 'task_failed', todoId: String(failedTimerId) }
       );
     }
     
@@ -134,7 +134,7 @@ export const notificationService = {
         data: {
           failedUserId: failedUserId,
           notifiedFriendId: notifiedFriendId,
-          failedTodoId: failedTodoId,
+          failedTimerId: failedTimerId,
           status: 'SENT', // Enum: SENT 
         },
       });
