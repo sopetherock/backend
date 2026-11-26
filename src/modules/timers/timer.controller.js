@@ -1,7 +1,7 @@
 // src/modules/timers/timer.controller.js
 import prisma from '../../config/db.js';
-import axios from 'axios';
 import { makeGroupWithFriends } from '../social/social.service.js';
+import { notificationService } from '../notifications/notifications.service.js';
 
 // --- 기능 1: 개인 할일 (PersonalTimer 모델 사용) ---
 
@@ -73,10 +73,9 @@ export const completePersonalTimer = async (req, res) => {
 
     // 2. URL 파라미터에서 timerId 가져오기
     // 주의: req.params.timerId는 문자열(String)이므로 정수(Int)로 변환해야 합니다.
-    const { todoId } = req.params;
-    const timerIdInt = parseInt(timerId, 10);
+    const timerIdInt = parseInt(req.params.timerId, 10);
 
-    if (!timerId || isNaN(timerIdInt)) {
+    if (isNaN(timerIdInt)) {
       return res.status(400).json({ message: '유효하지 않은 타이머 ID입니다.' });
     }
 
@@ -127,54 +126,27 @@ export const completePersonalTimer = async (req, res) => {
 export const failPersonalTimer = async (req, res) => {
   try {
     const userId = req.user.id;
-    const todoId = parseInt(req.params.todoId);
+    const timerId = parseInt(req.params.timerId, 10);
 
-    // 1. 타이머 상태를 'fail'로 변경
-    // findFirst로 먼저 확인 후 update (관계 생성을 위해 ID가 확실히 필요함)
-    const targetTimer = await prisma.personalTimer.findFirst({
-      where: { id: todoId, ownerId: userId, status: 'running' },
-    });
-
-    if (!targetTimer) {
-      return res.status(404).json({ message: '이미 처리된 타이머입니다.' });
+    if (isNaN(timerId)) {
+      return res.status(400).json({ message: '유효하지 않은 타이머 ID입니다.' });
     }
 
-    // 상태 실패로 변경
-    await prisma.personalTimer.update({
-      where: { id: todoId },
-      data: {
-        status: 'fail',
-        endTime: new Date(),
-      },
+    // "내 running 타이머"만 원자적으로 실패 처리 (이미 처리된 타이머는 count 0)
+    const result = await prisma.personalTimer.updateMany({
+      where: { id: timerId, ownerId: userId, status: 'running' },
+      data: { status: 'fail', endTime: new Date() },
     });
 
-    // 2. 알림을 보낼 친구 찾기 (랜덤 1명 혹은 지정된 로직)
-    // 예: 친구 관계 중 'ACCEPTED'인 사람 조회
-    const friendRelation = await prisma.friend.findFirst({
-      where: {
-        OR: [{ requesterId: userId }, { addresseeId: userId }],
-        status: 'ACCEPTED',
-      },
-    });
+    if (result.count === 0) {
+      return res.status(404).json({ message: '타이머를 찾을 수 없거나 이미 처리되었습니다.' });
+    }
 
-    if (friendRelation) {
-      // 친구 ID 추출
-      const friendId = (friendRelation.requesterId === userId)
-        ? friendRelation.addresseeId
-        : friendRelation.requesterId;
-
-      // 3. FriendFailureAlert 생성 (친구에게 알림)
-      // 주의: 스키마의 FriendFailureAlert에서 failedTodoId가 PersonalTimer의 ID를 참조한다고 가정
-      await prisma.friendFailureAlert.create({
-        data: {
-          failedUserId: userId,
-          notifiedFriendId: friendId,
-          failedTodoId: timerId, // 실패한 PersonalTimer의 ID
-          status: 'SENT',
-        },
-      });
-      
-      console.log(`🔔 친구(ID:${friendId})에게 벼락치기 실패 알림 전송`);
+    // 본인 알림 + 랜덤 친구에게 실패 알림(FriendFailureAlert 생성)은 서비스 직접 호출
+    try {
+      await notificationService.sendFailureAlerts(userId, timerId);
+    } catch (err) {
+      console.error('🔔 실패 알림 처리 오류:', err.message);
     }
 
     res.status(200).json({ message: '타이머 실패 처리되었습니다.' });
@@ -198,6 +170,10 @@ export const createGroupTimer = async (req, res) => {
     const userId = req.user.id;
     // 프론트엔드에서 보낸 데이터: { todo: "팀플 자료조사", deadline: "2024-11-20T18:00:00", invitedUserIds: [2, 3] }
     const { todo, deadline, invitedUserIds } = req.body; 
+
+    if (!deadline || isNaN(new Date(deadline).getTime())) {
+      return res.status(400).json({ message: '유효한 마감 시간(deadline)이 필요합니다.' });
+    }
 
     // 1. Social 서비스의 그룹 생성 로직 호출
     // (makeGroupWithFriends 함수 내부에서 prisma.group.create를 할 때 todo, deadline을 넣도록 수정 필요)
@@ -223,17 +199,81 @@ export const createGroupTimer = async (req, res) => {
 
     // 2. 초대 알림 발송 (기존 로직)
     if (invitedUserIds && invitedUserIds.length > 0) {
-      const notificationApiUrl = `http://localhost:3000/api/notifications/invite`;
-      axios.post(notificationApiUrl, {
-        groupId: newGroup.id,
-        inviterName: req.user.nickname || "친구",
-        invitedUserIds: invitedUserIds,
-      }).catch(err => console.error("🔥 초대 알림 전송 실패:", err.message));
+      // 서비스 직접 호출 (서버리스 환경에서 HTTP 자기호출/응답 후 비동기 작업은 유실될 수 있음)
+      try {
+        await notificationService.sendGroupInvites(
+          invitedUserIds,
+          req.user.nickname || '친구',
+          todo || '그룹 타이머',
+          newGroup.id
+        );
+      } catch (err) {
+        console.error('🔥 초대 알림 전송 실패:', err.message);
+      }
     }
 
     res.status(201).json(newGroup);
   } catch (error) {
     console.error('🔥 그룹 타이머 생성 오류:', error);
+    res.status(500).json({ message: '서버 오류' });
+  }
+};
+
+/**
+ * API: POST /api/timers/group/:groupId/accept
+ * 기능: 그룹 초대 수락 (INVITED -> ACCEPTED)
+ */
+export const acceptGroupInvite = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const groupId = parseInt(req.params.groupId, 10);
+    if (isNaN(groupId)) {
+      return res.status(400).json({ message: '유효하지 않은 그룹 ID입니다.' });
+    }
+
+    const result = await prisma.groupMembership.updateMany({
+      where: { userId, groupId, status: 'INVITED', group: { status: 'ACTIVE' } },
+      data: { status: 'ACCEPTED' },
+    });
+
+    if (result.count === 0) {
+      return res.status(404).json({ message: '수락할 초대가 없거나 이미 처리되었습니다.' });
+    }
+
+    res.status(200).json({ message: '그룹 초대를 수락했습니다.', groupId });
+  } catch (error) {
+    console.error('🔥 그룹 초대 수락 오류:', error);
+    res.status(500).json({ message: '서버 오류' });
+  }
+};
+
+/**
+ * API: POST /api/timers/group/:groupId/decline
+ * 기능: 그룹 초대 거절 (INVITED -> DECLINED)
+ */
+export const declineGroupInvite = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const groupId = parseInt(req.params.groupId, 10);
+    if (isNaN(groupId)) {
+      return res.status(400).json({ message: '유효하지 않은 그룹 ID입니다.' });
+    }
+
+    const result = await prisma.groupMembership.updateMany({
+      where: { userId, groupId, status: 'INVITED' },
+      data: { status: 'DECLINED' },
+    });
+
+    if (result.count === 0) {
+      return res.status(404).json({ message: '거절할 초대가 없거나 이미 처리되었습니다.' });
+    }
+
+    // 남은 참여자가 모두 끝난 상태였다면 그룹을 정리
+    await findLoserAndDisband(groupId);
+
+    res.status(200).json({ message: '그룹 초대를 거절했습니다.', groupId });
+  } catch (error) {
+    console.error('🔥 그룹 초대 거절 오류:', error);
     res.status(500).json({ message: '서버 오류' });
   }
 };
@@ -271,8 +311,8 @@ export const completeGroupTask = async (req, res) => {
       select: { lightingPoints: true }
     });
 
-    // 3. (선택사항) 그룹의 모든 멤버가 완료했는지 체크하여 그룹 상태를 변경하는 로직
-    // await checkGroupAllComplete(groupId); 
+    // 3. 전원 완료(또는 마감 경과) 시 그룹 해체 + 벌칙자 선정 (조건 미충족이면 내부에서 return)
+    await findLoserAndDisband(groupId);
 
     res.status(200).json({ 
       message: '그룹 할 일 완료! (번개 +1)',
@@ -329,18 +369,18 @@ export const failGroupTask = async (req, res) => {
         // 당장은 알림만 보내는 방식(DB저장 X, Axios 전송 O)을 써야 합니다.
         // 여기서는 "알림 서비스로 전송"하는 코드를 작성합니다.
         
-        const notificationApiUrl = `http://localhost:${process.env.PORT || 3000}/api/notifications/lightning`; 
-        // 혹은 별도의 failure 알림 엔드포인트
-
-        axios.post(notificationApiUrl, {
-             targetUserId: userId, // 실패한 사람 (나)
-             friendId: friendId,   // 알림 받을 사람
-             groupId: groupId,     // 관련 그룹
-             type: 'group_fail'
-        }).catch(err => console.error('🔔 그룹 실패 알림 전송 실패:', err.message));
+        // 서비스 직접 호출 (기존 동작 유지: 알림 수신 대상은 실패한 본인 — 설계 확인 필요)
+        try {
+          await notificationService.sendLightningAlert(userId, groupId);
+        } catch (err) {
+          console.error('🔔 그룹 실패 알림 전송 실패:', err.message);
+        }
 
         console.log(`🔔 그룹 할일 포기: 친구(ID:${friendId})에게 알림 전송 시도`);
     }
+
+    // 남은 참여자가 모두 끝났다면 그룹 해체 + 벌칙자 선정
+    await findLoserAndDisband(groupId);
 
     res.status(200).json({ message: '그룹 할 일을 포기했습니다. (목록에서 제거됨)' });
 
@@ -384,14 +424,12 @@ export const addStrike = async (req, res) => {
       data: { lastStrikeAt: new Date() }, // ⬅️ 현재 시간으로 갱신
     });
 
-    // Notification 서버로 알림 요청 보내기
-    const notificationApiUrl = `http://localhost:${process.env.PORT || 3000}/api/notifications/lightning`;
-    
-    // 비동기로 요청 (await 안 씀 - 알림 실패해도 벼락은 성공 처리)
-    axios.post(notificationApiUrl, {
-      targetUserId: userId, // 벼락 맞은 사람 ID
-      groupId: groupId,     // 어느 그룹인지
-    }).catch(err => console.error('⚡ 벼락 알림 요청 실패:', err.message));
+    // 알림은 서비스 직접 호출 (알림이 실패해도 벼락 누적은 성공으로 처리)
+    try {
+      await notificationService.sendLightningAlert(userId, groupId);
+    } catch (err) {
+      console.error('⚡ 벼락 알림 요청 실패:', err.message);
+    }
 
     res.status(200).json({ message: 'Strike processed.' });
   } catch (error) {
@@ -399,6 +437,37 @@ export const addStrike = async (req, res) => {
     res.status(500).json({ message: '벼락 누적 중 서버 오류' });
   }
 };
+
+/**
+ * 내부 함수 (API 아님)
+ * 기능: 자동 벼락 — 완료 안 한(ACCEPTED) 멤버 중 랜덤 1명에게 벼락 +1 후 알림
+ * (40분 크론, /notifications/trigger-auto-strike 에서 호출)
+ */
+export async function applyAutoStrike(groupId) {
+  const candidates = await prisma.groupMembership.findMany({
+    where: { groupId, status: 'ACCEPTED', group: { status: 'ACTIVE' } },
+    select: { userId: true },
+  });
+  if (candidates.length === 0) return null;
+
+  const target = candidates[Math.floor(Math.random() * candidates.length)];
+
+  await prisma.groupMembership.updateMany({
+    where: { groupId, userId: target.userId, status: 'ACCEPTED' },
+    data: { thunderCount: { increment: 1 } },
+  });
+  await prisma.group.update({
+    where: { id: groupId },
+    data: { lastStrikeAt: new Date() },
+  });
+
+  try {
+    await notificationService.sendLightningAlert(target.userId, groupId);
+  } catch (err) {
+    console.error('⚡ 자동 벼락 알림 실패:', err.message);
+  }
+  return target.userId;
+}
 
 /**
  * 내부 함수 (API 아님)
@@ -457,9 +526,6 @@ async function findLoserAndDisband(groupId) {
     }
 
     // 6. [B] Timer -> Notifications (벌칙자 통보)
-    // 알림 서비스 모듈을 가져옵니다. (순환 참조 방지)
-    const { notificationService } = await import('./notifications.service.js');
-
     // 벌칙을 내리는 주체를 '그룹 벌칙 시스템'으로 지정
     await notificationService.sendStrikePenaltyAlert(
         loser.userId, 
@@ -482,35 +548,25 @@ export const getUrgentTask = async (req, res) => {
   try {
     const userId = req.user.id; // authMiddleware가 준 유저 ID
     const now = new Date();
-    const twentyFourHoursLater = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const limit = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
-    // 조건에 맞는 가장 급한 할 일 1개 찾기
-    const urgentTask = await prisma.todo.findFirst({
-      where: {
-        ownerId: userId,       // 내 할 일
-        status: 'pending',     // 아직 안 끝난 것
-        deadline: {
-          gt: now,                  // 이미 지난 건 제외
-          lte: twentyFourHoursLater // 24시간 이내인 것
-        },
-      },
-      orderBy: {
-        deadline: 'asc', // 마감 시간이 빠른 순서대로 정렬
-      },
-      select: {
-        id: true,
-        title: true,
-        deadline: true, // 위젯이 시간 계산하려면 이게 필수!
-      }
+    // PersonalTimer에는 deadline 컬럼이 없으므로 startTime + duration(초)으로 마감 시각을 계산
+    const running = await prisma.personalTimer.findMany({
+      where: { ownerId: userId, status: 'running' },
+      select: { id: true, todo: true, startTime: true, duration: true },
     });
 
-    // 급한 게 없으면 null 반환 (위젯이 '할 일 없음' 띄우도록)
-    if (!urgentTask) {
-      return res.status(200).json({ task: null });
-    }
+    const urgentTask = running
+      .map((t) => ({
+        id: t.id,
+        todo: t.todo,
+        deadline: new Date(t.startTime.getTime() + t.duration * 1000),
+      }))
+      .filter((t) => t.deadline > now && t.deadline <= limit)
+      .sort((x, y) => x.deadline - y.deadline)[0];
 
-    // 3. 할 일 정보 반환
-    res.status(200).json({ task: urgentTask });
+    // 급한 게 없으면 null 반환 (위젯이 '할 일 없음' 띄우도록)
+    res.status(200).json({ task: urgentTask ?? null });
 
   } catch (error) {
     console.error('🔥 위젯 데이터 조회 오류:', error);
