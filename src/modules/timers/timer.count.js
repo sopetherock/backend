@@ -33,7 +33,7 @@ const runAutoStrikeScheduler = async () => {
             });
             // 2-2. [Timer -> Notifications]
             // "알아서 벼락 내려"라고 Notifications 모듈에 트리거 전송
-            const strikeTriggerApi = 'http://localhost:3000/api/notifications/trigger-auto-strike';
+            const strikeTriggerApi = `http://localhost:${process.env.PORT || 3000}/api/notifications/trigger-auto-strike`;
   
             axios.post(strikeTriggerApi, { groupId: group.id })
                 .catch(err => {

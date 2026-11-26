@@ -1,4 +1,5 @@
 import express from 'express';
+import axios from 'axios';
 import { z } from 'zod';
 import prisma from '../../config/db.js'; // 1. config의 공유 Prisma 인스턴스 사용
 import { registerDbSchema } from './auth.validation.js'; // 2. 새 Zod 스키마

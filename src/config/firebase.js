@@ -10,7 +10,9 @@ const require = createRequire(import.meta.url);
 
 // 3. 생성된 require 함수로 'serviceAccountKey.json' 파일을 불러옵니다.
 // (경로: 'src/config/'에서 두 단계 위로 올라가 'main/' 폴더의 키 파일)
-const serviceAccount = require('../../serviceAccountKey.json');
+const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_JSON
+  ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)
+  : require('../../serviceAccountKey.json');
 
 // 4. Firebase Admin SDK 초기화 (중복 방지)
 // (이 부분은 공식 스니펫과 동일합니다)
